@@ -574,6 +574,27 @@ String *Item_func_decode_histogram::val_str(String *str)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+Item_func_concat *
+Item_func_concat::create(THD *thd, const LEX_CSTRING &name,
+                         List<Item> *item_list)
+{
+  if (create_check_args_ge(name, item_list, 1))
+    return NULL;
+  return new (thd->mem_root) Item_func_concat(thd, *item_list);
+}
+
+
+Item_func_concat_operator_oracle *
+Item_func_concat_operator_oracle::create(THD *thd,
+                                         const LEX_CSTRING &name,
+                                         List<Item> *item_list)
+{
+  if (create_check_args_ge(name, item_list, 1))
+    return NULL;
+  return new (thd->mem_root) Item_func_concat_operator_oracle(thd, *item_list);
+}
+
+
 /*
   Realloc the result buffer.
   NOTE: We should be prudent in the initial allocation unit -- the
@@ -2172,11 +2193,10 @@ void Item_func_trim::print(String *str, enum_query_type query_type)
 {
   if (arg_count == 1)
   {
-    Item_func::print(str, query_type);
+    print_sql_mode_dependent(str, query_type);
     return;
   }
-  str->append(Item_func_trim::func_name());
-  str->append(func_name_ext());
+  print_sql_mode_dependent_name(str, query_type, Item_func_trim::func_name());
   str->append('(');
   str->append(mode_name());
   str->append(' ');
@@ -2387,6 +2407,20 @@ void Item_func_encode::crypto_transform(String *res)
 void Item_func_decode::crypto_transform(String *res)
 {
   sql_crypt.decode((char*) res->ptr(),res->length());
+}
+
+
+Item_func_decode *Item_func_decode::create(THD *thd, const LEX_CSTRING &name,
+                                           List<Item> *item_list)
+{
+  if (unlikely(!item_list || item_list->elements != 2))
+  {
+    wrong_param_count_error(mariadb_schema.name(), name);
+    return NULL;
+  }
+  Item_args args(thd, *item_list);
+  return new (thd->mem_root) Item_func_decode(thd, args.arguments()[0],
+                                                   args.arguments()[1]);
 }
 
 
@@ -3242,6 +3276,47 @@ static String *default_pad_str(String *pad_str, CHARSET_INFO *collation)
   pad_str->append(" ", 1);
   return pad_str;
 }
+
+
+Item_func_lpad*
+Item_func_lpad::create(THD *thd, const LEX_CSTRING &name,
+                       List<Item> *item_list)
+{
+  if (create_check_args_between(name, item_list, 2, 3))
+    return NULL;
+  return new (thd->mem_root) Item_func_lpad(thd, *item_list);
+}
+
+
+Item_func_lpad_oracle*
+Item_func_lpad_oracle::create(THD *thd, const LEX_CSTRING &name,
+                              List<Item> *item_list)
+{
+  if (create_check_args_between(name, item_list, 2, 3))
+    return NULL;
+  return new (thd->mem_root) Item_func_lpad_oracle(thd, *item_list);
+}
+
+
+Item_func_rpad*
+Item_func_rpad::create(THD *thd, const LEX_CSTRING &name,
+                       List<Item> *item_list)
+{
+  if (create_check_args_between(name, item_list, 2, 3))
+    return NULL;
+  return new (thd->mem_root) Item_func_rpad(thd, *item_list);
+}
+
+
+Item_func_rpad_oracle*
+Item_func_rpad_oracle::create(THD *thd, const LEX_CSTRING &name,
+                              List<Item> *item_list)
+{
+  if (create_check_args_between(name, item_list, 2, 3))
+    return NULL;
+  return new (thd->mem_root) Item_func_rpad_oracle(thd, *item_list);
+}
+
 
 bool Item_func_pad::fix_length_and_dec()
 {

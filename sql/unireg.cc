@@ -199,10 +199,7 @@ LEX_CUSTRING build_frm_image(THD *thd, const LEX_CSTRING &table,
     create_info->null_bits++;
   data_offset= (create_info->null_bits + 7) / 8;
 
-  sql_mode_t save_sql_mode= thd->variables.sql_mode;
-  thd->variables.sql_mode &= ~MODE_ANSI_QUOTES;
   error= pack_vcols(&vcols, create_fields, create_info->check_constraint_list);
-  thd->variables.sql_mode= save_sql_mode;
 
   if (unlikely(error))
     DBUG_RETURN(frm);
@@ -638,6 +635,7 @@ static bool pack_expression(String *buf, Virtual_column_info *vcol,
 static bool pack_vcols(String *buf, List<Create_field> &create_fields,
                              List<Virtual_column_info> *check_constraint_list)
 {
+  Sql_mode_save_for_frm_handling sql_mode_save(current_thd);
   List_iterator<Create_field> it(create_fields);
   Create_field *field;
 

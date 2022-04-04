@@ -744,12 +744,25 @@ enum enum_query_type
                         QT_ITEM_SUBSELECT_ID_ONLY,
 
   QT_SHOW_SELECT_NUMBER= (1<<10),
+
+  //QT_ITEM_IDENT_DISABLE_DB_TABLE_NAMES= (1 <<11), -- this is taken in 10.5
+
+  /// Print sql_mode-dependent functions with the schema qualifier
+  /// even if the currently implied (by sql_mode) schema is equal to
+  /// to the function schema, e.g. mariadb_schema.concat('a').
+  QT_ITEM_FUNC_FORCE_SCHEMA_NAME= (1 << 12),
+
+  /// Print for FRM file. Focus on parse-back.
+  /// e.g. VIEW expressions and virtual column expressions
+  QT_FOR_FRM= (1 << 13),
+
   /// This is used for EXPLAIN EXTENDED extra warnings / Be more detailed
   /// Be more detailed than QT_EXPLAIN.
   /// Perhaps we should eventually include QT_ITEM_IDENT_SKIP_CURRENT_DATABASE
   /// here, as it would give better readable results
   QT_EXPLAIN_EXTENDED=  QT_TO_SYSTEM_CHARSET|
-                        QT_SHOW_SELECT_NUMBER,
+                        QT_SHOW_SELECT_NUMBER|
+                        QT_ITEM_FUNC_FORCE_SCHEMA_NAME,
 
   // If an expression is constant, print the expression, not the value
   // it evaluates to. Should be used for error messages, so that they

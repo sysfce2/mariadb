@@ -56,7 +56,116 @@ protected:
   bool check_argument_types_can_return_date(uint start, uint end) const;
   bool check_argument_types_can_return_time(uint start, uint end) const;
   void print_cast_temporal(String *str, enum_query_type query_type);
+
+  void print_schema_qualified_name(String *to,
+                                   const LEX_CSTRING &schema_name,
+                                   const char *function_name) const
+  {
+    // e.g. oracle_schema.func()
+    to->append(schema_name);
+    to->append('.');
+    to->append(function_name);
+  }
+
+  void print_name_with_optional_suffix(String *to,
+                                       const char *function_name,
+                                       const LEX_CSTRING &suffix) const
+  {
+    // e.g. func_oracle()
+    to->append(function_name);
+    if (suffix.length)
+    {
+      to->append("_");
+      to->append(suffix);
+    }
+  }
+
+  void print_sql_mode_dependent_name(String *to, enum_query_type query_type,
+                                     const Schema &schema,
+                                     const char *function_name,
+                                     const LEX_CSTRING &suffix) const
+  {
+    if (query_type & QT_ITEM_FUNC_FORCE_SCHEMA_NAME)
+    {
+      DBUG_ASSERT((query_type & QT_FOR_FRM) == 0);
+      print_schema_qualified_name(to, schema.name(), function_name);
+    }
+    else if (query_type & QT_FOR_FRM)
+    {
+      // e.g. substr_oracle()
+      DBUG_ASSERT((query_type & QT_ITEM_FUNC_FORCE_SCHEMA_NAME) == 0);
+      print_name_with_optional_suffix(to, function_name, suffix);
+    }
+    else if (&schema != Schema::find_implied(current_thd))
+      print_schema_qualified_name(to, schema.name(), function_name);
+    else
+      to->append(function_name);
+  }
+
+  void print_sql_mode_dependent_name(String *to, enum_query_type query_type,
+                                     const Schema &schema,
+                                     const char *function_name) const
+  {
+    static const LEX_CSTRING oracle= {STRING_WITH_LEN("oracle")};
+    static const LEX_CSTRING empty= {NULL, 0};
+    const LEX_CSTRING suffix= &schema == &oracle_schema_ref ? oracle : empty;
+    print_sql_mode_dependent_name(to, query_type,
+                                  schema, function_name, suffix);
+  }
+  void print_sql_mode_dependent_name(String *to, enum_query_type query_type,
+                                     const char *function_name) const
+  {
+    print_sql_mode_dependent_name(to, query_type, *schema(), function_name);
+  }
+  void print_sql_mode_dependent(String *to, enum_query_type query_type)
+  {
+    print_sql_mode_dependent_name(to, query_type, func_name());
+    print_args_parenthesized(to, query_type);
+  }
 public:
+
+  // Print an error message for a builtin-schema qualified function call
+  static void wrong_param_count_error(const LEX_CSTRING &schema_name,
+                                      const LEX_CSTRING &func_name);
+
+  // Check that the number of arguments is greater or equal to "expected"
+  static bool create_check_args_ge(const LEX_CSTRING &name,
+                                   const List<Item> *item_list,
+                                   uint expected)
+  {
+    DBUG_ASSERT(expected > 0);
+    if (!item_list || item_list->elements < expected)
+    {
+      my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name.str);
+      return true;
+    }
+    return false;
+  }
+
+  // Check that the number of arguments is less or equal to "expected"
+  static bool create_check_args_le(const LEX_CSTRING &name,
+                                   const List<Item> *item_list,
+                                   uint expected)
+  {
+    DBUG_ASSERT(expected > 0);
+    if (!item_list || item_list->elements > expected)
+    {
+      my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name.str);
+      return true;
+    }
+    return false;
+  }
+
+  // Check that the number of arguments is in the allowed range
+  static bool create_check_args_between(const LEX_CSTRING &name,
+                                        const List<Item> *item_list,
+                                        uint min_arg_count,
+                                        uint max_arg_count)
+  {
+    DBUG_ASSERT(min_arg_count < max_arg_count);
+    return create_check_args_ge(name, item_list, min_arg_count) ||
+           create_check_args_le(name, item_list, max_arg_count);
+  }
 
   table_map not_null_tables_cache;
 
@@ -180,6 +289,12 @@ public:
   virtual void print(String *str, enum_query_type query_type);
   void print_op(String *str, enum_query_type query_type);
   void print_args(String *str, uint from, enum_query_type query_type);
+  void print_args_parenthesized(String *str, enum_query_type query_type)
+  {
+    str->append('(');
+    print_args(str, 0, query_type);
+    str->append(')');
+  }
   bool is_null() { 
     update_null_value();
     return null_value; 

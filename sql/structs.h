@@ -33,6 +33,7 @@ struct TABLE;
 class Type_handler;
 class Field;
 class Index_statistics;
+struct Lex_ident_cli_st;
 
 class THD;
 
@@ -779,7 +780,9 @@ public:
   }
   Item *make_item_func_trim_std(THD *thd) const;
   Item *make_item_func_trim_oracle(THD *thd) const;
-  Item *make_item_func_trim(THD *thd) const;
+  Item *make_item_func_trim(THD *thd,
+                            const Lex_ident_cli_st &schema_name,
+                            const Lex_ident_cli_st &func_name) const;
 };
 
 
@@ -787,6 +790,25 @@ class Lex_trim: public Lex_trim_st
 {
 public:
   Lex_trim(trim_spec spec, Item *source) { set(spec, source); }
+};
+
+
+class Lex_substring_spec_st
+{
+public:
+  Item *m_subject;
+  Item *m_from;
+  Item *m_for;
+  static Lex_substring_spec_st init(Item *subject,
+                                    Item *from,
+                                    Item *xfor= NULL)
+  {
+    Lex_substring_spec_st res;
+    res.m_subject= subject;
+    res.m_from= from;
+    res.m_for= xfor;
+    return res;
+  }
 };
 
 

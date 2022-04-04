@@ -3400,9 +3400,24 @@ void Item_func_case_simple::print(String *str, enum_query_type query_type)
 }
 
 
+Item_func_decode_oracle *
+Item_func_decode_oracle::create(THD *thd, const LEX_CSTRING &name,
+                                List<Item> *item_list)
+{
+  if (unlikely(!item_list || item_list->elements < 3))
+  {
+    wrong_param_count_error(oracle_schema_ref.name(), name);
+    return NULL;
+  }
+  return new (thd->mem_root) Item_func_decode_oracle(thd, *item_list);
+}
+
+
 void Item_func_decode_oracle::print(String *str, enum_query_type query_type)
 {
-  str->append(func_name());
+  print_sql_mode_dependent_name(str, query_type,
+                                oracle_schema_ref,
+                                Item_func_decode_oracle::func_name());
   str->append('(');
   args[0]->print(str, query_type);
   for (uint i= 1, count= when_count() ; i <= count; i++)

@@ -598,6 +598,23 @@ protected:
 };
 
 
+class Create_func_decode : public Create_native_func
+{
+public:
+  virtual Item *create_native(THD *thd, const LEX_CSTRING *name,
+                              List<Item> *item_list)
+  {
+    return Item_func_decode::create(thd, *name, item_list);
+  }
+
+  static Create_func_decode s_singleton;
+
+protected:
+  Create_func_decode() {}
+  virtual ~Create_func_decode() {}
+};
+
+
 class Create_func_decode_oracle : public Create_native_func
 {
 public:
@@ -2267,29 +2284,23 @@ public:
   virtual Item *create_native(THD *thd, const LEX_CSTRING *name,
                               List<Item> *item_list)
   {
-    return thd->variables.sql_mode & MODE_ORACLE ?
-           create_native_oracle(thd, name, item_list) :
-           create_native_std(thd, name, item_list);
+    return Item_func_lpad::create(thd, *name, item_list);
   }
   static Create_func_lpad s_singleton;
 
 protected:
   Create_func_lpad() = default;
   virtual ~Create_func_lpad() = default;
-  Item *create_native_std(THD *thd, const LEX_CSTRING *name,
-                          List<Item> *items);
-  Item *create_native_oracle(THD *thd, const LEX_CSTRING *name,
-                             List<Item> *items);
 };
 
 
-class Create_func_lpad_oracle : public Create_func_lpad
+class Create_func_lpad_oracle : public Create_native_func
 {
 public:
   Item *create_native(THD *thd, const LEX_CSTRING *name,
                       List<Item> *item_list)
   {
-    return create_native_oracle(thd, name, item_list);
+    return Item_func_lpad_oracle::create(thd, *name, item_list);
   }
   static Create_func_lpad_oracle s_singleton;
 };
@@ -2745,29 +2756,23 @@ public:
   virtual Item *create_native(THD *thd, const LEX_CSTRING *name,
                               List<Item> *item_list)
   {
-    return thd->variables.sql_mode & MODE_ORACLE ?
-           create_native_oracle(thd, name, item_list) :
-           create_native_std(thd, name, item_list);
+    return Item_func_rpad::create(thd, *name, item_list);
   }
   static Create_func_rpad s_singleton;
 
 protected:
   Create_func_rpad() = default;
   virtual ~Create_func_rpad() = default;
-  Item *create_native_std(THD *thd, const LEX_CSTRING *name,
-                          List<Item> *items);
-  Item *create_native_oracle(THD *thd, const LEX_CSTRING *name,
-                             List<Item> *items);
 };
 
 
-class Create_func_rpad_oracle : public Create_func_rpad
+class Create_func_rpad_oracle : public Create_native_func
 {
 public:
   Item *create_native(THD *thd, const LEX_CSTRING *name,
                       List<Item> *item_list)
   {
-    return create_native_oracle(thd, name, item_list);
+    return Item_func_rpad_oracle::create(thd, *name, item_list);
   }
   static Create_func_rpad_oracle s_singleton;
 };
@@ -4029,20 +4034,7 @@ Item*
 Create_func_concat::create_native(THD *thd, const LEX_CSTRING *name,
                                   List<Item> *item_list)
 {
-  int arg_count= 0;
-
-  if (item_list != NULL)
-    arg_count= item_list->elements;
-
-  if (unlikely(arg_count < 1))
-  {
-    my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name->str);
-    return NULL;
-  }
-
-  return thd->variables.sql_mode & MODE_ORACLE ?
-    new (thd->mem_root) Item_func_concat_operator_oracle(thd, *item_list) :
-    new (thd->mem_root) Item_func_concat(thd, *item_list);
+  return Item_func_concat::create(thd, *name, item_list);
 }
 
 Create_func_concat_operator_oracle
@@ -4052,18 +4044,7 @@ Item*
 Create_func_concat_operator_oracle::create_native(THD *thd, const LEX_CSTRING *name,
                                                   List<Item> *item_list)
 {
-  int arg_count= 0;
-
-  if (item_list != NULL)
-    arg_count= item_list->elements;
-
-  if (unlikely(arg_count < 1))
-  {
-    my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name->str);
-    return NULL;
-  }
-
-  return new (thd->mem_root) Item_func_concat_operator_oracle(thd, *item_list);
+  return Item_func_concat_operator_oracle::create(thd, *name, item_list);
 }
 
 Create_func_decode_histogram Create_func_decode_histogram::s_singleton;
@@ -4074,19 +4055,15 @@ Create_func_decode_histogram::create_2_arg(THD *thd, Item *arg1, Item *arg2)
   return new (thd->mem_root) Item_func_decode_histogram(thd, arg1, arg2);
 }
 
+Create_func_decode Create_func_decode::s_singleton;
+
 Create_func_decode_oracle Create_func_decode_oracle::s_singleton;
 
 Item*
 Create_func_decode_oracle::create_native(THD *thd, const LEX_CSTRING *name,
                                          List<Item> *item_list)
 {
-  uint arg_count= item_list ? item_list->elements : 0;
-  if (unlikely(arg_count < 3))
-  {
-    my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name->str);
-    return NULL;
-  }
-  return new (thd->mem_root) Item_func_decode_oracle(thd, *item_list);
+  return Item_func_decode_oracle::create(thd, *name, item_list);
 }
 
 Create_func_concat_ws Create_func_concat_ws::s_singleton;
@@ -5898,10 +5875,7 @@ Create_func_length Create_func_length::s_singleton;
 Item*
 Create_func_length::create_1_arg(THD *thd, Item *arg1)
 {
-  if (thd->variables.sql_mode & MODE_ORACLE)
-    return new (thd->mem_root) Item_func_char_length(thd, arg1);
-  else
-    return new (thd->mem_root) Item_func_octet_length(thd, arg1);
+  return new (thd->mem_root) Item_func_octet_length(thd, arg1);
 }
 
 Create_func_octet_length Create_func_octet_length::s_singleton;
@@ -6054,72 +6028,12 @@ Create_func_lpad Create_func_lpad::s_singleton;
 
 Create_func_lpad_oracle Create_func_lpad_oracle::s_singleton;
 
-Item*
-Create_func_lpad::create_native_std(THD *thd, const LEX_CSTRING *name,
-                                    List<Item> *item_list)
-{
-  Item *func= NULL;
-  int arg_count= item_list ? item_list->elements : 0;
-
-  switch (arg_count) {
-  case 2:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    func= new (thd->mem_root) Item_func_lpad(thd, param_1, param_2);
-    break;
-  }
-  case 3:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    Item *param_3= item_list->pop();
-    func= new (thd->mem_root) Item_func_lpad(thd, param_1, param_2, param_3);
-    break;
-  }
-  default:
-    my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name->str);
-    break;
-  }
-
-  return func;
-}
-
-
-Item*
-Create_func_lpad::create_native_oracle(THD *thd, const LEX_CSTRING *name,
-                                       List<Item> *item_list)
-{
-  int arg_count= item_list ? item_list->elements : 0;
-  switch (arg_count) {
-  case 2:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    return new (thd->mem_root) Item_func_lpad_oracle(thd, param_1, param_2);
-  }
-  case 3:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    Item *param_3= item_list->pop();
-    return new (thd->mem_root) Item_func_lpad_oracle(thd, param_1,
-                                                     param_2, param_3);
-  }
-  default:
-    my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name->str);
-    break;
-  }
-  return NULL;
-}
-
-
 Create_func_ltrim Create_func_ltrim::s_singleton;
 
 Item*
 Create_func_ltrim::create_1_arg(THD *thd, Item *arg1)
 {
-  return Lex_trim(TRIM_LEADING, arg1).make_item_func_trim(thd);
+  return Lex_trim(TRIM_LEADING, arg1).make_item_func_trim_std(thd);
 }
 
 
@@ -6616,72 +6530,12 @@ Create_func_rpad Create_func_rpad::s_singleton;
 
 Create_func_rpad_oracle Create_func_rpad_oracle::s_singleton;
 
-Item*
-Create_func_rpad::create_native_std(THD *thd, const LEX_CSTRING *name,
-                                    List<Item> *item_list)
-{
-  Item *func= NULL;
-  int arg_count= item_list ? item_list->elements : 0;
-
-  switch (arg_count) {
-  case 2:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    func= new (thd->mem_root) Item_func_rpad(thd, param_1, param_2);
-    break;
-  }
-  case 3:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    Item *param_3= item_list->pop();
-    func= new (thd->mem_root) Item_func_rpad(thd, param_1, param_2, param_3);
-    break;
-  }
-  default:
-    my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name->str);
-    break;
-  }
-
-  return func;
-}
-
-
-Item*
-Create_func_rpad::create_native_oracle(THD *thd, const LEX_CSTRING *name,
-                                       List<Item> *item_list)
-{
-  int arg_count= item_list ? item_list->elements : 0;
-  switch (arg_count) {
-  case 2:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    return new (thd->mem_root) Item_func_rpad_oracle(thd, param_1, param_2);
-  }
-  case 3:
-  {
-    Item *param_1= item_list->pop();
-    Item *param_2= item_list->pop();
-    Item *param_3= item_list->pop();
-    return new (thd->mem_root) Item_func_rpad_oracle(thd, param_1,
-                                                     param_2, param_3);
-  }
-  default:
-    my_error(ER_WRONG_PARAMCOUNT_TO_NATIVE_FCT, MYF(0), name->str);
-    break;
-  }
-  return NULL;
-}
-
-
 Create_func_rtrim Create_func_rtrim::s_singleton;
 
 Item*
 Create_func_rtrim::create_1_arg(THD *thd, Item *arg1)
 {
-  return Lex_trim(TRIM_TRAILING, arg1).make_item_func_trim(thd);
+  return Lex_trim(TRIM_TRAILING, arg1).make_item_func_trim_std(thd);
 }
 
 
@@ -7249,7 +7103,7 @@ Create_func_year_week::create_native(THD *thd, const LEX_CSTRING *name,
   - keep 1 line per entry, it makes grep | sort easier
 */
 
-Native_func_registry func_array[] =
+const Native_func_registry func_array[] =
 {
   { { STRING_WITH_LEN("ABS") }, BUILDER(Create_func_abs)},
   { { STRING_WITH_LEN("ACOS") }, BUILDER(Create_func_acos)},
@@ -7299,6 +7153,7 @@ Native_func_registry func_array[] =
   { { STRING_WITH_LEN("DAYOFMONTH") }, BUILDER(Create_func_dayofmonth)},
   { { STRING_WITH_LEN("DAYOFWEEK") }, BUILDER(Create_func_dayofweek)},
   { { STRING_WITH_LEN("DAYOFYEAR") }, BUILDER(Create_func_dayofyear)},
+  { { STRING_WITH_LEN("DECODE") }, BUILDER(Create_func_decode)},
   { { STRING_WITH_LEN("DEGREES") }, BUILDER(Create_func_degrees)},
   { { STRING_WITH_LEN("DECODE_HISTOGRAM") }, BUILDER(Create_func_decode_histogram)},
   { { STRING_WITH_LEN("DECODE_ORACLE") }, BUILDER(Create_func_decode_oracle)},
@@ -7609,9 +7464,25 @@ Native_func_registry func_array[] =
   { {0, 0}, NULL}
 };
 
-size_t func_array_length= sizeof(func_array) / sizeof(Native_func_registry) - 1;
 
-static HASH native_functions_hash;
+const Native_func_registry func_array_oracle_overrides[] =
+{
+  { { STRING_WITH_LEN("CONCAT") },  BUILDER(Create_func_concat_operator_oracle)},
+  { { STRING_WITH_LEN("DECODE") },  BUILDER(Create_func_decode_oracle)},
+  { { STRING_WITH_LEN("LENGTH") },  BUILDER(Create_func_char_length)},
+  { { STRING_WITH_LEN("LPAD") },    BUILDER(Create_func_lpad_oracle)},
+  { { STRING_WITH_LEN("LTRIM") },   BUILDER(Create_func_ltrim_oracle)},
+  { { STRING_WITH_LEN("RPAD") },    BUILDER(Create_func_rpad_oracle)},
+  { { STRING_WITH_LEN("RTRIM") },   BUILDER(Create_func_rtrim_oracle)},
+
+  { {0, 0}, NULL}
+};
+
+
+const size_t func_array_length= sizeof(func_array) / sizeof(Native_func_registry) - 1;
+
+Native_functions_hash native_functions_hash;
+Native_functions_hash native_functions_hash_oracle_overrides;
 
 extern "C" uchar*
 get_native_fct_hash_key(const uchar *buff, size_t *length,
@@ -7628,61 +7499,64 @@ get_native_fct_hash_key(const uchar *buff, size_t *length,
   startup only (before going multi-threaded)
 */
 
-int item_create_init()
+bool Native_functions_hash::init(size_t count)
 {
-  DBUG_ENTER("item_create_init");
+  DBUG_ENTER("Native_functions_hash::item");
 
-  if (my_hash_init(& native_functions_hash,
+  if (my_hash_init(this,
                    system_charset_info,
-                   array_elements(func_array),
+                   (ulong) count,
                    0,
                    0,
                    (my_hash_get_key) get_native_fct_hash_key,
                    NULL,                          /* Nothing to free */
                    MYF(0)))
-    DBUG_RETURN(1);
+    DBUG_RETURN(true);
 
-  DBUG_RETURN(item_create_append(func_array));
+  DBUG_RETURN(false);
 }
 
-int item_create_append(Native_func_registry array[])
-{
-  Native_func_registry *func;
 
-  DBUG_ENTER("item_create_append");
+bool Native_functions_hash::append(const Native_func_registry array[])
+{
+  const Native_func_registry *func;
+
+  DBUG_ENTER("Native_functions_hash::append");
 
   for (func= array; func->builder != NULL; func++)
   {
-    if (my_hash_insert(& native_functions_hash, (uchar*) func))
-      DBUG_RETURN(1);
+    if (my_hash_insert(this, (uchar*) func))
+      DBUG_RETURN(true);
   }
 
 #ifndef DBUG_OFF
-  for (uint i=0 ; i < native_functions_hash.records ; i++)
+  for (uint i=0 ; i < records ; i++)
   {
-    func= (Native_func_registry*) my_hash_element(& native_functions_hash, i);
+    func= (Native_func_registry*) my_hash_element(this, i);
     DBUG_PRINT("info", ("native function: %s  length: %u",
                         func->name.str, (uint) func->name.length));
   }
 #endif
 
-  DBUG_RETURN(0);
+  DBUG_RETURN(false);
 }
 
-int item_create_remove(Native_func_registry array[])
-{
-  Native_func_registry *func;
 
-  DBUG_ENTER("item_create_remove");
+bool Native_functions_hash::remove(const Native_func_registry array[])
+{
+  const Native_func_registry *func;
+
+  DBUG_ENTER("Native_functions_hash::remove");
 
   for (func= array; func->builder != NULL; func++)
   {
-    if (my_hash_delete(& native_functions_hash, (uchar*) func))
-      DBUG_RETURN(1);
+    if (my_hash_delete(this, (uchar*) func))
+      DBUG_RETURN(true);
   }
 
-  DBUG_RETURN(0);
+  DBUG_RETURN(false);
 }
+
 
 /*
   Empty the hash table for native functions.
@@ -7690,23 +7564,24 @@ int item_create_remove(Native_func_registry array[])
   shutdown only (after thread requests have been executed).
 */
 
-void item_create_cleanup()
+void Native_functions_hash::cleanup()
 {
-  DBUG_ENTER("item_create_cleanup");
-  my_hash_free(& native_functions_hash);
+  DBUG_ENTER("Native_functions_hash::cleanup");
+  my_hash_free(this);
   DBUG_VOID_RETURN;
 }
 
+
 Create_func *
-find_native_function_builder(THD *thd, const LEX_CSTRING *name)
+Native_functions_hash::find(THD *thd, const LEX_CSTRING &name) const
 {
   Native_func_registry *func;
   Create_func *builder= NULL;
 
   /* Thread safe */
-  func= (Native_func_registry*) my_hash_search(&native_functions_hash,
-                                               (uchar*) name->str,
-                                               name->length);
+  func= (Native_func_registry*) my_hash_search(this,
+                                               (uchar*) name.str,
+                                               name.length);
 
   if (func)
   {
@@ -7715,6 +7590,36 @@ find_native_function_builder(THD *thd, const LEX_CSTRING *name)
 
   return builder;
 }
+
+
+int item_create_init()
+{
+  return
+    native_functions_hash.init(func_array, array_elements(func_array)) ||
+    native_functions_hash_oracle_overrides.init(
+                                   func_array_oracle_overrides,
+                                   array_elements(func_array_oracle_overrides));
+}
+
+
+int item_create_append(const Native_func_registry array[])
+{
+  return native_functions_hash.append(array);
+}
+
+
+int item_create_remove(const Native_func_registry array[])
+{
+  return native_functions_hash.remove(array);
+}
+
+
+void item_create_cleanup()
+{
+  native_functions_hash.cleanup();
+  native_functions_hash_oracle_overrides.cleanup();
+}
+
 
 Create_qfunc *
 find_qualified_function_builder(THD *thd)
