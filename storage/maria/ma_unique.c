@@ -236,11 +236,20 @@ my_bool _ma_unique_comp(MARIA_UNIQUEDEF *def, const uchar *a, const uchar *b,
       memcpy((void*) &pos_a, pos_a+keyseg->bit_start, sizeof(char*));
       memcpy((void*) &pos_b, pos_b+keyseg->bit_start, sizeof(char*));
     }
-    if (type == HA_KEYTYPE_TEXT || type == HA_KEYTYPE_VARTEXT1 ||
-        type == HA_KEYTYPE_VARTEXT2)
+    if (type == HA_KEYTYPE_TEXT)
     {
-      if (ha_compare_text(keyseg->charset, pos_a, a_length,
-                          pos_b, b_length, 0))
+      if (ha_compare_char_fixed(keyseg->charset,
+                                pos_a, a_length,
+                                pos_b, b_length,
+                                keyseg->length / keyseg->charset->mbmaxlen,
+                                0))
+        return 1;
+    }
+    else if (type == HA_KEYTYPE_VARTEXT1 ||
+             type == HA_KEYTYPE_VARTEXT2)
+    {
+      if (ha_compare_char_varying(keyseg->charset, pos_a, a_length,
+                                  pos_b, b_length, 0))
         return 1;
     }
     else
