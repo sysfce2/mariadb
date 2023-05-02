@@ -670,6 +670,5 @@ static LEX_STRING spider_init_queries[] = {
   {C_STRING_WITH_LEN(
     "create function if not exists spider_flush_table_mon_cache returns int"
     "  soname 'ha_spider.so';"
-  )},
-  {C_STRING_WITH_LEN("")}
+  )}
 };
