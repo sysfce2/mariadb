@@ -1,0 +1,47 @@
+source include/have_innodb.inc;
+source include/have_log_bin.inc;
+source include/have_binlog_format_mixed.inc;
+
+# Error injection to minimize extra log flushing inside innodb.
+SET @old_dbug= @@global.DEBUG_DBUG;
+SET GLOBAL debug_dbug="+d,ib_log_checkpoint_avoid";
+SET GLOBAL debug_dbug="+d,ib_background_sync_avoid";
+
+--connection default
+CREATE TABLE t1 (a INT PRIMARY KEY, b INT) ENGINE=InnoDB STATS_PERSISTENT=0;
+INSERT INTO t1 VALUES (1,1);
+INSERT INTO t1 VALUES (2,1);
+INSERT INTO t1 VALUES (3,1);
+
+connect (stop_purge,localhost,root,,);
+# This blocks purge due to old data being still visible.
+START TRANSACTION WITH CONSISTENT SNAPSHOT;
+
+--connection default
+INSERT INTO t1 VALUES (4,2);
+DELETE FROM t1 WHERE a in (1,2,3);
+
+# Rotate the binlog and wait for everything to settle down and latest binlog checkpoint to be done.
+FLUSH BINARY LOGS;
+--sleep 1
+#--source include/wait_for_binlog_checkpoint.inc
+
+# Now unblock the purge, and wait for some purge records to be written
+# to the redo log so the LSN is incremented but will not be synced to
+# disk until something else happens.
+--connection stop_purge
+ROLLBACK;
+--connection default
+--disconnect stop_purge
+
+--sleep 1
+
+# Now see if RESET MASTER will request and wait for a binlog checkpoint that is never reported.
+--echo *** Before RESET MASTER
+RESET MASTER;
+
+--echo *** After  RESET MASTER
+
+--connection default
+DROP TABLE t1;
+SET GLOBAL debug_dbug= @old_dbug;

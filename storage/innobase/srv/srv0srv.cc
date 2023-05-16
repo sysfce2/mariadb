@@ -1469,6 +1469,7 @@ innodb_flush_logs_at_trx_commit != 1 */
 static void srv_sync_log_buffer_in_background()
 {
 	time_t	current_time = time(NULL);
+	DBUG_EXECUTE_IF("ib_background_sync_avoid", return;);
 
 	srv_main_thread_op_info = "flushing log";
 	if (difftime(current_time, srv_last_log_flush_time)
