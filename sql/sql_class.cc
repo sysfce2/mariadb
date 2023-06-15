@@ -7976,7 +7976,7 @@ wait_for_commit::register_wait_for_prior_commit(wait_for_commit *waitee)
 */
 
 int
-wait_for_commit::wait_for_prior_commit2(THD *thd)
+wait_for_commit::wait_for_prior_commit2(THD *thd, bool force_wait)
 {
   PSI_stage_info old_stage;
   wait_for_commit *loc_waitee;
@@ -8001,7 +8001,7 @@ wait_for_commit::wait_for_prior_commit2(THD *thd)
                   &stage_waiting_for_prior_transaction_to_commit,
                   &old_stage);
   while ((loc_waitee= this->waitee.load(std::memory_order_relaxed)) &&
-         likely(!thd->check_killed(1)))
+         (likely(!thd->check_killed(1)) || force_wait))
     mysql_cond_wait(&COND_wait_commit, &LOCK_wait_commit);
   if (!loc_waitee)
   {
@@ -8029,9 +8029,7 @@ wait_for_commit::wait_for_prior_commit2(THD *thd)
       my_error(ER_PRIOR_COMMIT_FAILED, MYF(0));
     goto end;
   }
-  remove_from_list(&loc_waitee->subsequent_commits_list);
   mysql_mutex_unlock(&loc_waitee->LOCK_wait_commit);
-  this->waitee.store(NULL, std::memory_order_relaxed);
 
   wakeup_error= thd->killed_errno();
   if (!wakeup_error)

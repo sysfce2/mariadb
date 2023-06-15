@@ -173,7 +173,7 @@ finish_event_group(rpl_parallel_thread *rpt, uint64 sub_id,
     mark_start_commit() calls can be made and it is safe to de-allocate
     the GCO.
   */
-  err= wfc->wait_for_prior_commit(thd);
+  err= wfc->wait_for_prior_commit(thd, true);
   if (unlikely(err) && !rgi->worker_error)
     signal_error_to_sql_driver_thread(thd, rgi, err);
   thd->wait_for_commit_ptr= NULL;

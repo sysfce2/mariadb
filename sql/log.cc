@@ -7875,14 +7875,7 @@ MYSQL_BIN_LOG::queue_for_group_commit(group_commit_entry *orig_entry)
         }
         else
         {
-          /* We were killed, so remove us from the list of waitee. */
-          wfc->remove_from_list(&loc_waitee->subsequent_commits_list);
           mysql_mutex_unlock(&loc_waitee->LOCK_wait_commit);
-          /*
-            This is the thread clearing its own status, it is no longer on
-            the list of waiters. So no memory barriers are needed here.
-          */
-          wfc->waitee.store(NULL, std::memory_order_relaxed);
 
           orig_entry->thd->EXIT_COND(&old_stage);
           /* Interrupted by kill. */
