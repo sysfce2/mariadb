@@ -2318,9 +2318,11 @@ Sp_handler::sp_exist_routines(THD *thd, TABLE_LIST *routines) const
   for (routine= routines; routine; routine= routine->next_global)
   {
     sp_name *name;
-    LEX_CSTRING lex_db;
+    Lex_ident_fs lex_db= Lex_ident_fs(thd->make_lex_ident_fs(routine->db,
+                                                             true));
+    if (!lex_db.str)
+      DBUG_RETURN(TRUE); // EOM
     LEX_CSTRING lex_name;
-    thd->make_lex_string(&lex_db, routine->db.str, routine->db.length);
     thd->make_lex_string(&lex_name, routine->table_name.str,
                          routine->table_name.length);
     name= new sp_name(&lex_db, &lex_name, true);
@@ -2946,7 +2948,10 @@ Sp_handler::sp_cache_package_routine(THD *thd,
 {
   DBUG_ENTER("sp_cache_package_routine");
   DBUG_ASSERT(type() == SP_TYPE_FUNCTION || type() == SP_TYPE_PROCEDURE);
-  sp_name pkgname(&name->m_db, &pkgname_cstr, false);
+  Lex_ident_fs db= Lex_ident_fs(thd->make_lex_ident_fs(name->m_db, false));
+  if (!db.str)
+    DBUG_RETURN(true); // EOM
+  sp_name pkgname(&db, &pkgname_cstr, false);
   sp_head *ph= NULL;
   int ret= sp_handler_package_body.sp_cache_routine(thd, &pkgname,
                                                     lookup_only,
@@ -3110,7 +3115,16 @@ Sp_handler::sp_load_for_information_schema(THD *thd, TABLE *proc_table,
   const AUTHID definer= {{STRING_WITH_LEN("")}, {STRING_WITH_LEN("")}};
   sp_head *sp;
   sp_cache **spc= get_cache(thd);
-  sp_name sp_name_obj(&db, &name, true); // This can change "name"
+  DBUG_ASSERT(db.str);
+  Lex_ident_fs db_ident= Lex_ident_fs(thd->make_lex_ident_fs(db, false));
+  if (!db_ident.str)
+    return 0; // EOM
+  if (db_ident.check_db_name())
+  {
+    my_error(ER_SP_WRONG_NAME, MYF(0), db_ident.str);
+    return 0;
+  }
+  sp_name sp_name_obj(&db_ident, &name, true);
   *free_sp_head= 0;
   if ((sp= sp_cache_lookup(spc, &sp_name_obj)))
   {

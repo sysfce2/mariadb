@@ -1355,6 +1355,72 @@ public:
     return false;
   }
 
+  /*
+    Make an exact copy or a lower-cased copy of an file system identifier,
+    according to lower_case_table_names.
+    This method is suitible for identifiers of database
+    objects stored on the file system (such as databases, tables, triggers).
+
+    @param src   - The original identifier (usually coming from the parser)
+    @param force - What to do if lower_case_table_names==false:
+                   "false" means return "src" as is
+                   "true" means make a MEM_ROOT copy.
+    @return      - {NULL,0} in case of EOM
+    @return      - A non-NULL LEX_STRING with the identifier copy
+  */
+  LEX_CSTRING make_lex_ident_fs(const LEX_CSTRING &src, bool force)
+  {
+    DBUG_ASSERT(src.str);
+    if (lower_case_table_names)
+      return lex_string_casedn_root(mem_root, &my_charset_utf8mb3_general_ci,
+                                    src.str, src.length);
+    if (!force)
+      return src;
+    char *tmp= strmake_root(mem_root, src.str, src.length);
+    return LEX_CSTRING{tmp, tmp ? src.length : 0};
+  }
+
+  // Make a lower-cased copy of a string on mem_root
+  LEX_STRING lex_string_casedn_ident(const LEX_CSTRING &src)
+  {
+    DBUG_ASSERT(src.str);
+    return lex_string_casedn_root(mem_root, &my_charset_utf8mb3_general_ci,
+                                  src.str, src.length);
+  }
+
+  /*
+    Return a checked and normalized database name.
+
+    @param name         - The name to normalize. Must not be {NULL,0}.
+    @param force        - What to do if lower_case_table_name==false:
+                          "false" means return "src" as is
+                          "true" means make a MEM_ROOT copy.
+    @return             - {NULL,0} if the name is not a good database name
+                          or EOM. An errror is raised in both cases.
+    @return             - A non-NULL identifier otherwise.
+  */
+  Lex_ident_db normalized_db_name_with_error(const LEX_CSTRING &name,
+                                             bool force);
+
+  /*
+     Normalize a database identifier inplace.
+
+    @param name         - The name to normalize. Must not be {NULL,0}.
+    @param force        - What to do if lower_case_table_name==false:
+                          "false" means keep "name" as is
+                          "true" means replace "name" to a MEM_ROOT copy.
+    @return             - true if the name is not a good database name or EOM.
+    @return             - false if the name was successfully normalized.
+
+  */
+  bool normalize_db_name_with_error(LEX_CSTRING *db, bool force)
+  {
+    LEX_CSTRING tmp= normalized_db_name_with_error(*db, force);
+    if (!tmp.str)
+      return true;
+    *db= tmp;
+    return false;
+  }
 
   void set_query_arena(Query_arena *set);
 

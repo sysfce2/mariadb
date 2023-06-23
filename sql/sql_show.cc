@@ -4348,18 +4348,15 @@ bool get_lookup_field_values(THD *thd, COND *cond, bool fix_table_name_case,
 
   if (lower_case_table_names && !rc)
   {
-    /* 
-      We can safely do in-place upgrades here since all of the above cases
-      are allocating a new memory buffer for these strings.
-    */  
     if (lookup_field_values->db_value.str && lookup_field_values->db_value.str[0])
-      my_casedn_str(system_charset_info,
-                    (char*) lookup_field_values->db_value.str);
+      lookup_field_values->db_value= thd->lex_string_casedn_ident(
+                                       lookup_field_values->db_value);
+
     if (fix_table_name_case &&
         lookup_field_values->table_value.str &&
         lookup_field_values->table_value.str[0])
-      my_casedn_str(system_charset_info,
-                    (char*) lookup_field_values->table_value.str);
+      lookup_field_values->table_value= thd->lex_string_casedn_ident(
+                                          lookup_field_values->table_value);
   }
 
   return rc;
@@ -10460,11 +10457,7 @@ TABLE_LIST *get_trigger_table(THD *thd, const sp_name *trg_name)
   if (!(table= (TABLE_LIST*) thd->alloc(sizeof(TABLE_LIST))))
     return NULL;
 
-  db= trg_name->m_db;
-
-  db.str= thd->strmake(db.str, db.length);
-  if (lower_case_table_names)
-    db.length= my_casedn_str(files_charset_info, (char*) db.str);
+  db= thd->make_lex_ident_fs(trg_name->m_db, true);
 
   tbl_name.str= thd->strmake(tbl_name.str, tbl_name.length);
 

@@ -2638,7 +2638,12 @@ Create_qfunc::create_func(THD *thd, const LEX_CSTRING *name,
   if (thd->lex->copy_db_to(&db))
     return NULL;
 
-  return create_with_db(thd, &db, name, false, item_list);
+  // TODO: make copy_db_to() return Lex_ident_db!!!
+  Lex_ident_fs db_ident= Lex_ident_fs(thd->make_lex_ident_fs(db, false));
+  if (!db_ident.str)
+    return NULL; /*EOM*/
+
+  return create_with_db(thd, &db_ident, name, false, item_list);
 }
 
 

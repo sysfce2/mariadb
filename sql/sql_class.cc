@@ -3975,6 +3975,36 @@ Query_arena::Type Statement::type() const
 }
 
 
+/*
+  Make a normalized database name and check if it's valid.
+
+  If lower_case_table_names>0 then the identifier is lower-cased.
+  An error is raised in case of EOM or a bad database name.
+
+  @param src   - the database name
+  @param force - force making a MEM_ROOT copy even if
+                 lower_case_table_names==false
+
+  @returns non-NULL LEX_CSTRING  on ok
+  @returns NULL LEX_CSTRING      on error
+*/
+
+Lex_ident_db
+Query_arena::normalized_db_name_with_error(const LEX_CSTRING &src, bool force)
+{
+  DBUG_ASSERT(src.str);
+  if (src.str == any_db.str) // e.g. JSON table
+    return any_db; // preserve any_db - it has a special meaning
+
+  const LEX_CSTRING tmp= make_lex_ident_fs(src, force);
+  if (!tmp.str /*EOM*/ ||
+      Lex_ident_fs(tmp).check_db_name_with_error())
+    return Lex_ident_db();
+
+  return Lex_ident_db(tmp.str, tmp.length);
+}
+
+
 void Statement::set_statement(Statement *stmt)
 {
   id=             stmt->id;
