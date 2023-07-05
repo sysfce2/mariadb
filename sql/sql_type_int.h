@@ -167,14 +167,14 @@ public:
   */
   static ULonglong_null ullmul(ulonglong a, ulonglong b)
   {
-    ulong a1= a >> 32;
-    ulong b1= b >> 32;
+    ulong a1= (ulong)(a >> 32);
+    ulong b1= (ulong)(b >> 32);
 
     if (a1 && b1)
       return ULonglong_null(0, true);
 
-    ulong a0= 0xFFFFFFFFUL & a;
-    ulong b0= 0xFFFFFFFFUL & b;
+    ulong a0= (ulong)(0xFFFFFFFFUL & a);
+    ulong b0= (ulong)(0xFFFFFFFFUL & b);
 
     ulonglong res1= (ulonglong) a1 * b0 + (ulonglong) a0 * b1;
     if (res1 > 0xFFFFFFFFUL)
