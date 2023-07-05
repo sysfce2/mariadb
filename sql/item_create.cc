@@ -5682,7 +5682,7 @@ bool Native_functions_hash::append(const Native_func_registry array[],
       DBUG_RETURN(true);
   }
 
-#ifndef DBUG_OFF
+#if ! defined (DBUG_OFF) && defined (DBUG_TRACE)
   for (uint i=0 ; i < records ; i++)
   {
     const Native_func_registry *func=
