@@ -26,6 +26,11 @@
 #include "sql_list.h"                           /* Sql_alloc */
 #include "sql_string.h"                         /* String */
 
+/*
+  String with names of SYSTEM time zone.
+*/
+static const String tz_SYSTEM_name("SYSTEM", 6, &my_charset_latin1);
+
 class THD;
 
 #if !defined(TESTTIME) && !defined(TZINFO2SQL)
@@ -38,6 +43,18 @@ class THD;
   Actual time zones which are specified by DB, or via offset 
   or use system functions are its descendants.
 */
+
+/*
+  Has only offset from UTC, bool value to denote if it is
+  ahead (+), behind(-) of UTC and abbrevation.
+*/
+struct tz
+{
+  long seconds_offset;
+  bool is_behind;
+  char abbrevation[8];
+};
+
 class Time_zone: public Sql_alloc 
 {
 public:
@@ -61,6 +78,8 @@ public:
     of c_ptr().
   */
   virtual const String * get_name() const = 0;
+
+  virtual void get_timezone_information(struct tz* curr_tz) const = 0;
 
   /** 
     We need this only for surpressing warnings, objects of this type are

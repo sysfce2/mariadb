@@ -468,20 +468,111 @@ err:
   DBUG_RETURN(1);
 }
 
+/*
+
+  Gets local time in MYSQL_TIME structure and tm struct.
+
+*/
+void get_timezone_offset_information(THD *thd, Time_zone *tz, int &hr,
+                                     int &min, char* abbrevation,
+                                     bool &is_neg)
+{
+  if (!tz)
+    return;
+
+  if (tz->get_name()->length() == tz_SYSTEM_name.length() &&
+      !strncmp((const char*)(tz->get_name()->ptr()),
+               (const char*)(tz_SYSTEM_name.ptr()), 6))
+  {
+    struct tm tm_local_time;
+    time_t time_sec= my_time(0);
+    MYSQL_TIME local_TIME, gmt_TIME;
+    ulonglong seconds_diff;
+    ulong microsec_diff;
+
+    /* Get local time in MYSQL_TIME struct. */
+    thd->variables.time_zone->gmt_sec_to_TIME(&local_TIME,
+                                              thd->query_start());
+    /* Get GMT time in MYSQL_TIME struct. */
+    my_tz_UTC->gmt_sec_to_TIME(&gmt_TIME, thd->query_start());
+
+    /* We need above two MYSQL_TIME to get time difference. */
+    is_neg= calc_time_diff(&local_TIME, &gmt_TIME, 1,
+                                  &seconds_diff, &microsec_diff);
+
+    /*
+      once we have time difference in seconds_diff,
+      convert it into hr and min.
+    */
+    hr= (int)(seconds_diff/3600L);
+    int temp= (int)(seconds_diff%3600L);
+    min= temp/60L;
+
+    /*
+      Get timezone abbrevation. It is stored in tm structure,
+      so convert time to tm struct and copy it.
+    */
+    localtime_r(&time_sec, &tm_local_time);
+# ifdef	__USE_MISC
+    int len= strlen((tm_local_time.tm_zone));
+    strncpy(abbrevation, (tm_local_time.tm_zone), len);
+    abbrevation[len]= '\0';
+# endif
+  }
+  else
+  {
+    /*
+      Information for "named" timezone and offset can be obtained from their
+      relevant class. So get the timezone information first.
+    */
+    struct tz tmp;
+    tz->get_timezone_information(&tmp);
+    is_neg= tmp.is_behind;
+
+    /* Get time in hour and min. */
+    time_t time_in_sec= abs(tmp.seconds_offset);
+    hr= (int)(time_in_sec/3600L);
+    int temp= (int)(time_in_sec%3600L);
+    min= temp/60L;
+
+    /* Copy the abbrevation. */
+    strncpy(abbrevation, (const char*)(tmp.abbrevation),
+            strlen((const char*)(tmp.abbrevation)));
+    abbrevation[strlen((const char*)(tmp.abbrevation))+1]='\0';
+  }
+
+  return;
+}
+
 
 /**
   Create a formatted date/time value in a string.
 */
 
-static bool make_date_time(const String *format, const MYSQL_TIME *l_time,
-                           timestamp_type type, const MY_LOCALE *locale,
-                           String *str)
+static bool make_date_time(THD *thd, const String *format,
+                           const MYSQL_TIME *l_time, timestamp_type type,
+                           const MY_LOCALE *locale, String *str)
 {
   char intbuff[15];
   uint hours_i;
   uint weekday;
   ulong length;
   const char *ptr, *end;
+  int diff_hr=0, diff_min=0;
+  bool curr_time_behind_utc= false;
+  char abbrevation[8];
+
+  Time_zone* curr_timezone= my_tz_find(thd,
+                               thd->variables.time_zone->get_name());
+
+  /*
+    precalculate local time and timezone information because
+    %z or %Z maybe present in the format.
+  */
+  memset(abbrevation, 0, sizeof(abbrevation));
+  get_timezone_offset_information(thd, curr_timezone, diff_hr,
+                                  diff_min, abbrevation,
+                                  curr_time_behind_utc);
 
   str->length(0);
 
@@ -699,6 +790,31 @@ static bool make_date_time(const String *format, const MYSQL_TIME *l_time,
 	str->append_with_prefill(intbuff, length, 1, '0');
 	break;
 
+      case 'z':
+      {
+        if (curr_time_behind_utc)
+          str->append("-", 1, system_charset_info);
+        else
+          str->append("+", 1, system_charset_info);
+
+        if (diff_hr/10 == 0)
+          str->append("0", 1, system_charset_info);
+        length= (uint) (int10_to_str(diff_hr, intbuff, 10) - intbuff);
+        str->append_with_prefill(intbuff, length, 1, '0');
+        if (diff_min/10 == 0)
+          str->append("0", 1, system_charset_info);
+        length= (uint) (int10_to_str(diff_min, intbuff, 10) - intbuff);
+        str->append_with_prefill(intbuff, length, 1, '0');
+      }
+        break;
+
+      case 'Z':
+      {
+        str->append(abbrevation,
+                    (uint) strlen(abbrevation),
+                    system_charset_info);
+      }
+        break;
       default:
 	str->append(*ptr);
 	break;
@@ -1912,7 +2028,7 @@ String *Item_func_date_format::val_str(String *str)
 
   /* Create the result string */
   str->set_charset(collation.collation);
-  if (!make_date_time(format, &l_time,
+  if (!make_date_time(thd, format, &l_time,
                       is_time_format ? MYSQL_TIMESTAMP_TIME :
                                        MYSQL_TIMESTAMP_DATE,
                       lc, str))
