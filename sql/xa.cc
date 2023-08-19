@@ -22,7 +22,7 @@
 #include "my_cpu.h"
 #include <pfs_transaction_provider.h>
 #include <mysql/psi/mysql_transaction.h>
-
+#include "rpl_rli.h"  // rpl_group_info
 static bool slave_applier_reset_xa_trans(THD *thd);
 
 /***************************************************************************
@@ -79,6 +79,9 @@ public:
   uint rm_error;
   enum xa_states xa_state;
   XID xid;
+  std::atomic<wait_for_commit *> waiter;
+  std::atomic<wait_for_commit *> p_waiter;
+
   bool is_set(int32_t flag)
   { return m_state.load(std::memory_order_relaxed) & flag; }
   void set(int32_t flag)
@@ -134,6 +137,7 @@ public:
     element->rm_error= 0;
     element->xa_state= new_element->xa_state;
     element->xid.set(new_element->xid);
+    element->waiter= element->p_waiter= NULL;
     new_element->xid_cache_element= element;
   }
   static void lf_alloc_constructor(uchar *ptr)
@@ -243,7 +247,7 @@ void xid_cache_free()
   Find recovered XA transaction by XID.
 */
 
-static XID_cache_element *xid_cache_search(THD *thd, XID *xid)
+XID_cache_element *xid_cache_search(THD *thd, XID *xid)
 {
   DBUG_ASSERT(thd->xid_hash_pins);
   XID_cache_element *element=
@@ -254,14 +258,154 @@ static XID_cache_element *xid_cache_search(THD *thd, XID *xid)
     /* The element can be removed from lf_hash by other thread, but
     element->acquire_recovered() will return false in this case. */
     if (!element->acquire_recovered())
-      element= 0;
+        element= 0;
     lf_hash_search_unpin(thd->xid_hash_pins);
     /* Once the element is acquired (i.e. got the ACQUIRED bit) by this thread,
     only this thread can delete it. The deletion happens in xid_cache_delete().
     See also the XID_cache_element documentation. */
     DEBUG_SYNC(thd, "xa_after_search");
   }
+  if (!element && thd->rgi_slave && thd->rgi_slave->is_parallel_exec)
+  {
+    DBUG_ASSERT(thd->lex->sql_command == SQLCOM_XA_COMMIT ||
+                thd->lex->sql_command == SQLCOM_XA_ROLLBACK);
+    thd->rgi_slave->is_async_xac= true;
+  }
+
   return element;
+}
+
+const int SPIN_MAX= 20;
+/**
+  The function tries inserting until succeeds.
+  Similarly to @c xid_cache_search_maybe_wait, it is expecting the xid, supplied
+  by the THD argument will be eventually released for acquisition.
+  Delay between two consequent insert attempts is chosen to be small yet
+  sufficient to take over the xid within few loop runs from a thread that must
+  be about to finish its xa commit work.
+
+  @return XID_cache_element poiter or NULL when the search is interruped
+          by kill.
+*/
+bool xid_cache_insert_maybe_wait(THD* thd)
+{
+  int i= 0;
+  bool rc;
+
+  do
+  {
+    if ((rc= xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid)))
+      ut_delay(1 + i++);
+  }
+  while (rc &&  i < SPIN_MAX);
+
+  if (rc)
+  {
+    XID *xid= thd->lex->xid;
+    XID_cache_element *element=
+      (XID_cache_element*) lf_hash_search(&xid_cache, thd->xid_hash_pins,
+                                          xid->key(), xid->key_length());
+    if (element)
+    {
+      PSI_stage_info old_stage;
+      wait_for_commit *waiter= thd->wait_for_commit_ptr;
+#ifndef DBUG_OFF
+      waiter->debug_done= false;
+#endif
+
+      element->p_waiter.store(waiter, std::memory_order_release);
+      lf_hash_search_unpin(thd->xid_hash_pins);
+
+      mysql_mutex_lock(&waiter->LOCK_wait_commit);
+      thd->ENTER_COND(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit,
+                      &stage_waiting_for_prior_xa_transaction,
+                      &old_stage);
+      if ((element=
+           (XID_cache_element*) lf_hash_search(&xid_cache, thd->xid_hash_pins,
+                                               xid->key(), xid->key_length())))
+      {
+        lf_hash_search_unpin(thd->xid_hash_pins);
+        mysql_cond_wait(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit);
+
+        DBUG_ASSERT(waiter->debug_done || thd->check_killed(1));
+      }
+      thd->EXIT_COND(&old_stage);
+    }
+    rc= xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid);
+  }
+
+  return rc;
+}
+
+XID_cache_element * xid_cache_search_maybe_wait(THD* thd)
+{
+  if (thd->fix_xid_hash_pins())
+  {
+    my_error(ER_OUT_OF_RESOURCES, MYF(0));
+    return NULL;
+  }
+
+  XID_cache_element *xs;
+  XID *xid= thd->lex->xid;
+  int i= 0;
+  do
+  {
+    if (!(xs= xid_cache_search(thd, thd->lex->xid)))
+      ut_delay(1 + i++);
+  }
+  while (!xs && i < SPIN_MAX);
+
+  if (!xs)
+  {
+    XID_cache_element *element=
+      (XID_cache_element*) lf_hash_search(&xid_cache, thd->xid_hash_pins,
+                                          xid->key(), xid->key_length());
+    if (element)
+    {
+      if (!element->acquire_recovered())
+      {
+        PSI_stage_info old_stage;
+        wait_for_commit *waiter= thd->wait_for_commit_ptr;
+        bool waiter_cleared= true;  // assumption
+
+        element->waiter.store(waiter, std::memory_order_release);
+        lf_hash_search_unpin(thd->xid_hash_pins);
+
+        mysql_mutex_lock(&waiter->LOCK_wait_commit);
+        thd->ENTER_COND(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit,
+                        &stage_waiting_for_prior_xa_transaction,
+                        &old_stage);
+        if (!element->acquire_recovered())
+        {
+          while (element->waiter.load(std::memory_order_acquire) &&
+                 likely(!thd->check_killed(1)))
+            mysql_cond_wait(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit);
+
+          if (element->waiter.load(std::memory_order_acquire))
+          {
+            waiter_cleared= false;
+            DBUG_ASSERT(thd->check_killed(1));
+          }
+        }
+        thd->EXIT_COND(&old_stage);
+
+        if (waiter_cleared &&
+            likely(element->is_set(XID_cache_element::RECOVERED |
+                                   XID_cache_element::ACQUIRED)))
+          xs= element;
+        else
+          goto end;
+      }
+      else
+      {
+        lf_hash_search_unpin(thd->xid_hash_pins);
+        xs= element;
+      }
+    }
+  }
+
+end:
+  return xs;
 }
 
 
@@ -302,7 +446,8 @@ bool xid_cache_insert(THD *thd, XID_STATE *xid_state, XID *xid)
     xid_state->xid_cache_element->set(XID_cache_element::ACQUIRED);
     break;
   case 1:
-    my_error(ER_XAER_DUPID, MYF(0));
+    if (!(thd->rgi_slave && thd->rgi_slave->is_parallel_exec))
+      my_error(ER_XAER_DUPID, MYF(0));
   }
   return res;
 }
@@ -311,9 +456,21 @@ bool xid_cache_insert(THD *thd, XID_STATE *xid_state, XID *xid)
 static void xid_cache_delete(THD *thd, XID_cache_element *&element)
 {
   DBUG_ASSERT(thd->xid_hash_pins);
+
+  wait_for_commit *waiter= (thd->rgi_slave && thd->rgi_slave->is_parallel_exec) ?
+    element->p_waiter.load(std::memory_order_acquire) : NULL;
   element->mark_uninitialized();
   lf_hash_delete(&xid_cache, thd->xid_hash_pins,
                  element->xid.key(), element->xid.key_length());
+  if (waiter)
+  {
+    mysql_mutex_lock(&waiter->LOCK_wait_commit);
+#ifndef DBUG_OFF
+    waiter->debug_done= true;
+#endif
+    mysql_cond_signal(&waiter->COND_wait_xa_commit);
+    mysql_mutex_unlock(&waiter->LOCK_wait_commit);
+  }
 }
 
 
@@ -456,7 +613,19 @@ bool trans_xa_start(THD *thd)
   else if (!trans_begin(thd))
   {
     MYSQL_SET_TRANSACTION_XID(thd->m_transaction_psi, thd->lex->xid, XA_ACTIVE);
-    if (xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid))
+
+    bool parallel_slave_xap_status= true; // presumed ordinary XA START
+    if (thd->rgi_slave &&
+        thd->rgi_slave->is_parallel_exec)
+    {
+      DBUG_ASSERT(thd->rgi_slave->gtid_ev_flags2 |
+                  Gtid_log_event::FL_PREPARED_XA);
+      // normally flips to false to designate the slave's XA_prepare is done
+      parallel_slave_xap_status= xid_cache_insert_maybe_wait(thd);
+    }
+
+    if (parallel_slave_xap_status &&
+        xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid))
     {
       trans_rollback(thd);
       DBUG_RETURN(true);
@@ -602,12 +771,15 @@ bool trans_xa_commit(THD *thd)
       my_error(ER_OUT_OF_RESOURCES, MYF(0));
       DBUG_RETURN(TRUE);
     }
+    DBUG_ASSERT(!thd->rgi_slave || !thd->rgi_slave->is_async_xac);
 
-    if (auto xs= xid_cache_search(thd, thd->lex->xid))
+    XID_cache_element *xs;
+    if ((xs= xid_cache_search(thd, thd->lex->xid)) ||
+        (thd->rgi_slave && thd->rgi_slave->is_async_xac))
     {
       bool xid_deleted= false;
       MDL_request mdl_request;
-      bool rw_trans= (xs->rm_error != ER_XA_RBROLLBACK);
+      bool rw_trans= (xs && xs->rm_error != ER_XA_RBROLLBACK);
 
       if (rw_trans && thd->is_read_only_ctx())
       {
@@ -615,8 +787,7 @@ bool trans_xa_commit(THD *thd)
         res= 1;
         goto _end_external_xid;
       }
-
-      res= xa_trans_rolled_back(xs);
+      res= xs ? xa_trans_rolled_back(xs) : 0;
       /*
         Acquire metadata lock which will ensure that COMMIT is blocked
         by active FLUSH TABLES WITH READ LOCK (and vice versa COMMIT in
@@ -645,7 +816,7 @@ bool trans_xa_commit(THD *thd)
       }
       DBUG_ASSERT(!xid_state.xid_cache_element);
 
-      xid_state.xid_cache_element= xs;
+      xid_state.xid_cache_element= xs; // may be NULL on parallel slave
       ha_commit_or_rollback_by_xid(thd->lex->xid, !res);
       if (!res && thd->is_error())
       {
@@ -654,7 +825,10 @@ bool trans_xa_commit(THD *thd)
         res= true;
         goto _end_external_xid;
       }
-      xid_cache_delete(thd, xs);
+      DBUG_ASSERT(xs || (thd->rgi_slave && thd->rgi_slave->is_async_xac &&
+                         xid_state.xid_cache_element));
+
+      xid_cache_delete(thd, xid_state.xid_cache_element);
       xid_deleted= true;
 
   _end_external_xid:
@@ -790,12 +964,14 @@ bool trans_xa_rollback(THD *thd)
       DBUG_RETURN(TRUE);
     }
 
-    if (auto xs= xid_cache_search(thd, thd->lex->xid))
+    XID_cache_element *xs;
+    if ((xs= xid_cache_search(thd, thd->lex->xid)) ||
+        (thd->rgi_slave && thd->rgi_slave->is_async_xac))
     {
       bool res;
       bool xid_deleted= false;
       MDL_request mdl_request;
-      bool rw_trans= (xs->rm_error != ER_XA_RBROLLBACK);
+      bool rw_trans= (xs && xs->rm_error != ER_XA_RBROLLBACK);
 
       if (rw_trans && thd->is_read_only_ctx())
       {
@@ -822,7 +998,7 @@ bool trans_xa_rollback(THD *thd)
       {
         thd->backup_commit_lock= &mdl_request;
       }
-      res= xa_trans_rolled_back(xs);
+      res= xs ? xa_trans_rolled_back(xs) : 0;
       DBUG_ASSERT(!xid_state.xid_cache_element);
 
       xid_state.xid_cache_element= xs;
@@ -831,7 +1007,10 @@ bool trans_xa_rollback(THD *thd)
       {
         goto _end_external_xid;
       }
-      xid_cache_delete(thd, xs);
+      DBUG_ASSERT(xs || (thd->rgi_slave && thd->rgi_slave->is_async_xac &&
+                         xid_state.xid_cache_element));
+
+      xid_cache_delete(thd, xid_state.xid_cache_element);
       xid_deleted= true;
 
   _end_external_xid:
@@ -1141,7 +1320,7 @@ static bool slave_applier_reset_xa_trans(THD *thd)
     ~(SERVER_STATUS_IN_TRANS | SERVER_STATUS_IN_TRANS_READONLY);
   DBUG_PRINT("info", ("clearing SERVER_STATUS_IN_TRANS"));
 
-  thd->transaction->xid_state.xid_cache_element->acquired_to_recovered();
+  auto save_xce= thd->transaction->xid_state.xid_cache_element;
   thd->transaction->xid_state.xid_cache_element= 0;
 
   for (Ha_trx_info *ha_info= thd->transaction->all.ha_list, *ha_info_next;
@@ -1153,6 +1332,16 @@ static bool slave_applier_reset_xa_trans(THD *thd)
   thd->transaction->all.ha_list= 0;
 
   ha_close_connection(thd);
+  save_xce->acquired_to_recovered();
+  wait_for_commit *waiter= save_xce->waiter.load(std::memory_order_acquire);
+  if (waiter)
+  {
+    // unmark and signal
+    mysql_mutex_lock(&waiter->LOCK_wait_commit);
+    save_xce->waiter.store(NULL, std::memory_order_release);
+    mysql_cond_signal(&waiter->COND_wait_xa_commit);
+    mysql_mutex_unlock(&waiter->LOCK_wait_commit);
+  }
   thd->transaction->cleanup();
   thd->transaction->all.reset();
 

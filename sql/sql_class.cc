@@ -7933,6 +7933,7 @@ wait_for_commit::reinit()
   wakeup_subsequent_commits_running= false;
   commit_started= false;
   wakeup_blocked= false;
+  parent_commit_started= false;
 #ifdef SAFE_MUTEX
   /*
     When using SAFE_MUTEX, the ordering between taking the LOCK_wait_commit
@@ -7958,6 +7959,7 @@ wait_for_commit::wait_for_commit()
 {
   mysql_mutex_init(key_LOCK_wait_commit, &LOCK_wait_commit, MY_MUTEX_INIT_FAST);
   mysql_cond_init(key_COND_wait_commit, &COND_wait_commit, 0);
+  mysql_cond_init(key_COND_wait_xa_commit, &COND_wait_xa_commit, 0);
   reinit();
 }
 
@@ -7987,6 +7989,7 @@ wait_for_commit::~wait_for_commit()
 
   mysql_mutex_destroy(&LOCK_wait_commit);
   mysql_cond_destroy(&COND_wait_commit);
+  mysql_cond_destroy(&COND_wait_xa_commit);
 }
 
 

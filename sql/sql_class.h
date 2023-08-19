@@ -2354,6 +2354,11 @@ struct wait_for_commit
     event group is fully done.
   */
   bool wakeup_blocked;
+  mysql_cond_t COND_wait_xa_commit;
+#ifndef DBUG_OFF
+  bool debug_done;
+#endif
+  bool parent_commit_started;
 
   void register_wait_for_prior_commit(wait_for_commit *waitee);
   int wait_for_prior_commit(THD *thd, bool allow_kill=true)

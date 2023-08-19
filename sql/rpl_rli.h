@@ -834,6 +834,7 @@ struct rpl_group_info
     RETRY_KILL_KILLED
   };
   uchar killed_for_retry;
+  bool is_async_xac;
 
   rpl_group_info(Relay_log_info *rli_);
   ~rpl_group_info();
