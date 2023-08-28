@@ -1,6 +1,6 @@
 include/master-slave.inc
 [connection master]
-include/rpl_gtid_until_before_gtids.inc
+include/rpl_gtid_until_before_after_gtids.inc
 #
 # Test Setup (SQL_BEFORE_GTIDS)
 # Clean primary and replica states
@@ -109,7 +109,7 @@ ERROR HY000: Could not parse GTID list
 connection master;
 DROP TABLE t1, t2;
 connection slave;
-include/rpl_gtid_until_before_gtids.inc
+include/rpl_gtid_until_before_after_gtids.inc
 #
 # Test Setup (SQL_AFTER_GTIDS)
 # Clean primary and replica states

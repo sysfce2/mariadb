@@ -8,7 +8,7 @@
 #    (when true), or SQL_AFTER_GTIDS (when false).
 #
 
---let $include_filename= rpl_gtid_until_before_gtids.inc
+--let $include_filename= rpl_gtid_until_before_after_gtids.inc
 --source include/begin_include_file.inc
 
 if ($ssu_before_gtids)
@@ -133,7 +133,7 @@ set session gtid_domain_id=0;
 --let $binlog_pos= `SELECT @@gtid_binlog_pos`
 --let $domain_id= `SELECT @@gtid_domain_id`
 --let $server_id= `SELECT @@server_id`
---let $last_seq_no=  `SELECT REGEXP_SUBSTR(REGEXP_SUBSTR('$binlog_pos','[0-9]+\\\$'),'[0-9]+')`
+--let $last_seq_no=  `SELECT REGEXP_SUBSTR('$binlog_pos','[0-9]+\\\$')`
 
 --let $skipped_seq_no=  `SELECT ($last_seq_no + 1)`
 --let $new_seq_no=  `SELECT ($skipped_seq_no + 1)`
@@ -201,7 +201,7 @@ set session gtid_domain_id=0;
 
 --let $binlog_pos= `SELECT @@gtid_binlog_pos`
 # Just the GTID for domain 0
---let $until_gtid=  `SELECT REGEXP_SUBSTR('$binlog_pos','0-[0-9]-[0-9]+')`
+--let $until_gtid=  `SELECT REGEXP_SUBSTR('$binlog_pos','0-[0-9]+-[0-9]+')`
 
 if (!$ssu_before_gtids)
 {
@@ -325,5 +325,5 @@ DROP TABLE t1, t2;
 --connection slave
 --source include/sync_with_master_gtid.inc
 
---let $include_filename= rpl_gtid_until_before_gtids.inc
+--let $include_filename= rpl_gtid_until_before_after_gtids.inc
 --source include/end_include_file.inc

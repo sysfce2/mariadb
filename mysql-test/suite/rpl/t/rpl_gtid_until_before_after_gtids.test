@@ -22,10 +22,10 @@
 --source include/master-slave.inc
 
 --let $ssu_before_gtids=1
---source include/rpl_gtid_until_before_gtids.test
+--source include/rpl_gtid_until_before_after_gtids.test
 
 --let $ssu_before_gtids=0
---source include/rpl_gtid_until_before_gtids.test
+--source include/rpl_gtid_until_before_after_gtids.test
 
 --echo #
 --echo # Cleanup
