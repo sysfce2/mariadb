@@ -1,0 +1,22 @@
+CREATE TABLE t(a INT PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t VALUES(1);
+BEGIN;
+SELECT * FROM t FOR UPDATE;
+a
+1
+connect  con1, localhost, root,,;
+BEGIN;
+SET innodb_lock_wait_timeout=100000000;
+SET DEBUG_SYNC='lock_rec SIGNAL locking WAIT_FOR proceed';
+SELECT * FROM t FOR UPDATE;
+connection default;
+SET DEBUG_SYNC='now WAIT_FOR locking';
+KILL QUERY @id;
+SET DEBUG_SYNC='now SIGNAL proceed';
+connection con1;
+ERROR 70100: Query execution was interrupted
+disconnect con1;
+connection default;
+SET DEBUG_SYNC=RESET;
+COMMIT;
+DROP TABLE t;
