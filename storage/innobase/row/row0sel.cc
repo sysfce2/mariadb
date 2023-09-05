@@ -1345,6 +1345,10 @@ sel_set_rec_lock(
 	block = btr_pcur_get_block(pcur);
 
 	trx = thr_get_trx(thr);
+        // ToDo: For some reason this doesn't work if done under
+        // DBUG_EXECUTE_IF("inject_mdev32096", ...) ?
+        if (trx->undo_no == 5)
+          my_sleep(1000000);
 
 	if (UT_LIST_GET_LEN(trx->lock.trx_locks) > 10000
 	    && buf_pool.running_out()) {

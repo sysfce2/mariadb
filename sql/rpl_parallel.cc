@@ -1374,6 +1374,13 @@ handle_rpl_parallel_thread(void *arg)
         unlock_or_exit_cond(thd, &entry->LOCK_parallel_entry,
                             &did_enter_cond, &old_stage);
 
+        DBUG_EXECUTE_IF("inject_mdev32096",
+        {
+          if (rgi->current_gtid.seq_no==100)
+            my_sleep(1000000);
+          if (rgi->current_gtid.seq_no==102)
+            my_sleep(500000);
+        });
         thd->wait_for_commit_ptr= &rgi->commit_orderer;
 
         if (opt_gtid_ignore_duplicates &&
@@ -1489,6 +1496,10 @@ handle_rpl_parallel_thread(void *arg)
           convert_kill_to_deadlock_error(rgi);
           DBUG_EXECUTE_IF("rpl_mdev31655_zero_retries",
                           if ((rgi->current_gtid.seq_no % 1000) == 0)
+                            max_retries= 0;
+                          );
+          DBUG_EXECUTE_IF("inject_mdev32096",
+                          if (rgi->current_gtid.seq_no == 100)
                             max_retries= 0;
                           );
           if (has_temporary_error(thd) && max_retries > 0)
