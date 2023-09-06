@@ -1892,7 +1892,6 @@ dberr_t lock_wait(que_thr_t *thr)
   thd_wait_begin(trx->mysql_thd, (type_mode & LOCK_TABLE)
                  ? THD_WAIT_TABLE_LOCK : THD_WAIT_ROW_LOCK);
 
-  int err= 0;
   mysql_mutex_lock(&lock_sys.wait_mutex);
   wait_lock= trx->lock.wait_lock;
 
@@ -1942,30 +1941,51 @@ dberr_t lock_wait(que_thr_t *thr)
     wait_lock= lock_wait_rpl_report(trx);
 #endif
 
-  if (trx->error_state != DB_SUCCESS)
-    goto check_trx_error;
+  switch (trx->error_state) {
+  case DB_SUCCESS:
+    break;
+  case DB_LOCK_WAIT:
+    trx->error_state= DB_SUCCESS;
+    break;
+  default:
+#ifdef UNIV_DEBUG
+    ut_ad("invalid state" == 0);
+    break;
+  case DB_DEADLOCK:
+  case DB_INTERRUPTED:
+#endif
+    goto end_loop;
+  }
 
   while (wait_lock)
   {
+    int err;
     ut_ad(wait_lock == trx->lock.wait_lock);
 
     DEBUG_SYNC_C("lock_wait_before_suspend");
 
     if (no_timeout)
+    {
       my_cond_wait(&trx->lock.cond, &lock_sys.wait_mutex.m_mutex);
+      err= 0;
+    }
     else
       err= my_cond_timedwait(&trx->lock.cond, &lock_sys.wait_mutex.m_mutex,
                              &abstime);
 
     wait_lock= trx->lock.wait_lock;
 
-check_trx_error:
     switch (trx->error_state) {
     case DB_DEADLOCK:
     case DB_INTERRUPTED:
       break;
+#ifdef UNIV_DEBUG
+    case DB_LOCK_WAIT_TIMEOUT:
+    case DB_LOCK_WAIT:
+      ut_ad("invalid state" == 0);
+      break;
+#endif
     default:
-      ut_ad(trx->error_state != DB_LOCK_WAIT_TIMEOUT);
       /* Dictionary transactions must ignore KILL, because they could
       be executed as part of a multi-transaction DDL operation,
       such as rollback_inplace_alter_table() or ha_innobase::delete_table(). */
@@ -1987,6 +2007,7 @@ check_trx_error:
     break;
   }
 
+end_loop:
   if (row_lock_wait)
     lock_sys.wait_resume(trx->mysql_thd, suspend_time, my_hrtime_coarse());
 
@@ -2010,6 +2031,18 @@ end_wait:
       }
     });
   thd_wait_end(trx->mysql_thd);
+
+#ifdef UNIV_DEBUG
+  switch (trx->error_state) {
+  case DB_SUCCESS:
+  case DB_DEADLOCK:
+  case DB_INTERRUPTED:
+  case DB_LOCK_WAIT_TIMEOUT:
+    break;
+  default:
+    ut_ad("invalid state" == 0);
+  }
+#endif
 
   return trx->error_state;
 }
