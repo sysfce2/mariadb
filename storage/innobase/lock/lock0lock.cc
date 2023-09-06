@@ -1853,8 +1853,10 @@ dberr_t lock_wait(que_thr_t *thr)
   {
     /* The lock has already been released or this transaction
     was chosen as a deadlock victim: no need to wait */
-    trx->error_state=
-      trx->lock.was_chosen_as_deadlock_victim ? DB_DEADLOCK : DB_SUCCESS;
+    if (trx->lock.was_chosen_as_deadlock_victim)
+      trx->error_state= DB_DEADLOCK;
+    else if (trx->error_state == DB_LOCK_WAIT)
+      trx->error_state= DB_SUCCESS;
     return trx->error_state;
   }
 
@@ -1926,8 +1928,10 @@ dberr_t lock_wait(que_thr_t *thr)
   {
     /* trx->lock.was_chosen_as_deadlock_victim can be changed before
     lock_sys.wait_mutex is acquired, so let's check it once more. */
-    trx->error_state=
-      trx->lock.was_chosen_as_deadlock_victim ? DB_DEADLOCK : DB_SUCCESS;
+    if (trx->lock.was_chosen_as_deadlock_victim)
+      trx->error_state= DB_DEADLOCK;
+    else if (trx->error_state == DB_LOCK_WAIT)
+      trx->error_state= DB_SUCCESS;
     goto end_wait;
   }
   if (row_lock_wait)
