@@ -2862,12 +2862,18 @@ set sql_warnings = 0;
 # ENCODE(), DECODE()
 set sql_warnings = 1;
 create table t1 (a varchar(1024), b varchar(1024) generated always as (decode(encode(a,'abc'),'abc')) virtual);
+Warnings:
+Warning	1287	'encode' is deprecated and will be removed in a future release
+Warning	1287	'decode' is deprecated and will be removed in a future release
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` varchar(1024) DEFAULT NULL,
   `b` varchar(1024) GENERATED ALWAYS AS (decode(encode(`a`,'abc'),'abc')) VIRTUAL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
+Warnings:
+Warning	1287	'encode' is deprecated and will be removed in a future release
+Warning	1287	'decode' is deprecated and will be removed in a future release
 insert into t1 values ('MySQL',default);
 select * from t1;
 a	b

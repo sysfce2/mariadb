@@ -907,7 +907,7 @@ bool Item_func_des_encrypt::fix_length_and_dec(THD *thd)
   max_length = args[0]->max_length + 9;
   push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE, ER_WARN_DEPRECATED_SYNTAX,
                       ER_THD(thd, ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT),
-                      func_name_cstring().str);
+                      func_name_cstring().str); // since 10.10.1
   return FALSE;
 }
 
@@ -1020,7 +1020,7 @@ bool Item_func_des_decrypt::fix_length_and_dec(THD *thd)
     max_length-= 9U;
   push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE, ER_WARN_DEPRECATED_SYNTAX,
                       ER_THD(thd, ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT),
-                      func_name_cstring().str);
+                      func_name_cstring().str); // since 10.10.1
   return FALSE;
 }
 
@@ -2714,6 +2714,7 @@ String *Item_func_encrypt::val_str(String *str)
 
 bool Item_func_encode::seed()
 {
+  THD *thd= current_thd;
   char buf[80];
   ulong rand_nr[2];
   String *key, tmp(buf, sizeof(buf), system_charset_info);
@@ -2723,6 +2724,10 @@ bool Item_func_encode::seed()
 
   hash_password(rand_nr, key->ptr(), key->length());
   sql_crypt.init(rand_nr);
+
+  push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN, ER_WARN_DEPRECATED_SYNTAX,
+                      ER_THD(thd, ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT),
+                      func_name_cstring().str); // since 11.3
 
   return FALSE;
 }

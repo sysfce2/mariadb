@@ -3034,6 +3034,9 @@ a	b	c
 aaaabbbb	6161616162626262	aaaabbbb
 DROP TABLE t1;
 CREATE TABLE t1 (a VARCHAR(10), b TEXT DEFAULT ENCODE(a,'test'), c TEXT DEFAULT DECODE(b,'test'));
+Warnings:
+Warning	1287	'encode' is deprecated and will be removed in a future release
+Warning	1287	'decode' is deprecated and will be removed in a future release
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
@@ -3041,6 +3044,9 @@ t1	CREATE TABLE `t1` (
   `b` text DEFAULT encode(`a`,'test'),
   `c` text DEFAULT decode(`b`,'test')
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci
+Warnings:
+Warning	1287	'encode' is deprecated and will be removed in a future release
+Warning	1287	'decode' is deprecated and will be removed in a future release
 INSERT INTO t1 (a) VALUES ('aaaabbbb');
 SELECT a, HEX(b), c FROM t1;
 a	HEX(b)	c
