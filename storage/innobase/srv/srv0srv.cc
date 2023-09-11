@@ -335,6 +335,8 @@ my_bool	srv_force_primary_key;
 /** Key version to encrypt the temporary tablespace */
 my_bool innodb_encrypt_temporary_tables;
 
+my_bool innodb_trunc_temp_space_now;
+
 my_bool srv_immediate_scrub_data_uncompressed;
 
 static time_t	srv_last_monitor_time;

@@ -532,6 +532,9 @@ ulint buf_read_ahead_linear(const page_id_t page_id, ulint zip_size)
     /* This is not a border page of the area */
     return 0;
 
+  if (page_id.space() == SRV_TMP_SPACE_ID)
+    return 0;
+
   fil_space_t *space= fil_space_t::get(page_id.space());
   if (!space)
     return 0;

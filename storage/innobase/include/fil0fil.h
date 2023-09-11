@@ -911,6 +911,25 @@ public:
     freed_ranges.add_range(range);
   }
 
+  void clear_freed_ranges(uint32_t threshold)
+  {
+    std::lock_guard<std::mutex> freed_lock(freed_range_mutex);
+    range_set current_ranges;
+    for (const auto &range : freed_ranges)
+    {
+      if (range.first >= threshold)
+        continue;
+      else if (range.last > threshold)
+      {
+        range_t new_range{range.first, threshold - 1};
+        current_ranges.add_range(new_range);
+        continue;
+      }
+      current_ranges.add_range(range);
+    }
+    freed_ranges= std::move(current_ranges);
+  }
+
   /** Set the tablespace size in pages */
   void set_sizes(uint32_t s)
   {
