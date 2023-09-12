@@ -323,6 +323,10 @@ decode(encode("abcdef","monty"),"monty")="abcdef"
 Warnings:
 Warning	1287	'encode' is deprecated and will be removed in a future release
 Warning	1287	'decode' is deprecated and will be removed in a future release
+SET STATEMENT old_mode= 'COMPAT_DISCOURAGED'
+    FOR select decode(encode("abcdef","monty"),"monty")="abcdef";
+decode(encode("abcdef","monty"),"monty")="abcdef"
+1
 select quote('\'\"\\test');
 quote('\'\"\\test')
 '\'"\\test'

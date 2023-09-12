@@ -203,6 +203,7 @@ enum enum_binlog_row_image {
 #define OLD_MODE_IGNORE_INDEX_ONLY_FOR_JOIN             (1 << 4)
 #define OLD_MODE_COMPAT_5_1_CHECKSUM                    (1 << 5)
 #define OLD_MODE_LOCK_ALTER_TABLE_COPY                  (1 << 6)
+#define OLD_MODE_COMPAT_DISCOURAGED                     (1 << 7)
 
 #define OLD_MODE_DEFAULT_VALUE          OLD_MODE_UTF8_IS_UTF8MB3
 

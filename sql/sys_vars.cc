@@ -3863,12 +3863,13 @@ static const char *old_mode_names[]=
   "IGNORE_INDEX_ONLY_FOR_JOIN",         // deprecated since 11.3
   "COMPAT_5_1_CHECKSUM",                // deprecated since 11.3
   "LOCK_ALTER_TABLE_COPY",              // deprecated since 11.3
+  "COMPAT_DISCOURAGED",
   0
 };
 
 void old_mode_deprecated_warnings(THD *thd, ulonglong v)
 {
-  v &= ~OLD_MODE_DEFAULT_VALUE;
+  v &= ~(OLD_MODE_DEFAULT_VALUE | OLD_MODE_COMPAT_DISCOURAGED);
   for (uint i=0; old_mode_names[i]; i++)
     if ((1ULL<<i) & v)
     {

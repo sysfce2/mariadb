@@ -2720,7 +2720,16 @@ bool Item_func_encode::seed()
   hash_password(rand_nr, key->ptr(), key->length());
   sql_crypt.init(rand_nr);
 
-  warn_deprecated<1103>(current_thd, func_name_cstring().str);
+  if (!(current_thd->variables.old_behavior & OLD_MODE_COMPAT_DISCOURAGED))
+  {
+    /*
+      This function should not be removed despite the deprecation warning.
+      That would cause problems for users who can then no longer access
+      columns in their database that might have been inserted as
+      ENCODE(str,pass_str).
+    */
+    warn_deprecated<1103>(current_thd, func_name_cstring().str);
+  }
 
   return FALSE;
 }
