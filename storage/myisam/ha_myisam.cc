@@ -714,6 +714,8 @@ static int compute_vcols(MI_INFO *info, uchar *record, int keynum)
   /* This mutex is needed for parallel repair */
   mysql_mutex_lock(&info->s->intern_lock);
   TABLE *table= (TABLE*)(info->external_ref);
+  if (!current_thd)
+    set_current_thd(table->in_use);
   table->move_fields(table->field, record, table->field[0]->record_ptr());
   if (keynum == -1) // update all vcols
   {
