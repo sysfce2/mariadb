@@ -1710,6 +1710,15 @@ class SQL_SELECT :public Sql_alloc {
   ~SQL_SELECT();
   void cleanup();
   void set_quick(QUICK_SELECT_I *new_quick) { delete quick; quick= new_quick; }
+
+  enum qs_return_type {
+    QUICK_SELECT_IMPOSSIBLE_RANGE = -2,
+    QUICK_SELECT_ERROR,
+    QUICK_SELECT_CANT_USE,
+    QUICK_SELECT_SUCCESS
+  };
+  typedef enum qs_return_type qs_return;
+
   bool check_quick(THD *thd, bool force_quick_range, ha_rows limit)
   {
     key_map tmp;
@@ -1730,7 +1739,7 @@ class SQL_SELECT :public Sql_alloc {
       rc= -1;
     return rc;
   }
-  int test_quick_select(THD *thd, key_map keys, table_map prev_tables,
+  qs_return test_quick_select(THD *thd, key_map keys, table_map prev_tables,
 			ha_rows limit, bool force_quick_range, 
                         bool ordered_output, bool remove_false_parts_of_where,
                         bool only_single_index_range_scan);

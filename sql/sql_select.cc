@@ -105,9 +105,10 @@ static int sort_keyuse(KEYUSE *a,KEYUSE *b);
 static bool are_tables_local(JOIN_TAB *jtab, table_map used_tables);
 static bool create_ref_for_key(JOIN *join, JOIN_TAB *j, KEYUSE *org_keyuse,
 			       bool allow_full_scan, table_map used_tables);
-static ha_rows get_quick_record_count(THD *thd, SQL_SELECT *select,
+static bool get_quick_record_count(THD *thd, SQL_SELECT *select,
 				      TABLE *table,
-				      const key_map *keys,ha_rows limit);
+				      const key_map *keys,ha_rows limit,
+                                      ha_rows &quick_count);
 static void optimize_straight_join(JOIN *join, table_map join_tables);
 static bool greedy_search(JOIN *join, table_map remaining_tables,
                           uint depth, uint prune_level,
@@ -5119,35 +5120,42 @@ err:
   Approximate how many records will be used in each table
 *****************************************************************************/
 
-static ha_rows get_quick_record_count(THD *thd, SQL_SELECT *select,
+static bool get_quick_record_count(THD *thd, SQL_SELECT *select,
 				      TABLE *table,
-				      const key_map *keys,ha_rows limit)
+				      const key_map *keys,ha_rows limit,
+                                      ha_rows &quick_count)
 {
-  int error;
+  SQL_SELECT::qs_return error;
   DBUG_ENTER("get_quick_record_count");
   uchar buff[STACK_BUFF_ALLOC];
   if (unlikely(check_stack_overrun(thd, STACK_MIN_SIZE, buff)))
-    DBUG_RETURN(0);                           // Fatal error flag is set
+    DBUG_RETURN(false);                           // Fatal error flag is set
   if (select)
   {
     select->head=table;
     table->reginfo.impossible_range=0;
-    if (likely((error=
-                select->test_quick_select(thd, *(key_map *)keys,
-                                          (table_map) 0,
-                                          limit, 0, FALSE,
-                                          TRUE,     /* remove_where_parts*/
-                                          FALSE)) ==
-               1))
-      DBUG_RETURN(select->quick->records);
-    if (unlikely(error == -1))
+    error= select->test_quick_select(thd, *(key_map *)keys, (table_map) 0,
+                                     limit, 0, FALSE,
+                                     /* remove_where_parts*/
+                                     TRUE, FALSE);
+
+    if (likely(error == SQL_SELECT::QUICK_SELECT_SUCCESS))
+    {
+      quick_count= select->quick->records;
+      DBUG_RETURN(false);
+    }
+    if (error == SQL_SELECT::QUICK_SELECT_IMPOSSIBLE_RANGE)
     {
       table->reginfo.impossible_range=1;
-      DBUG_RETURN(0);
+      DBUG_RETURN(false);
     }
+    if (unlikely(error == SQL_SELECT::QUICK_SELECT_ERROR))
+      DBUG_RETURN(true);
+
     DBUG_PRINT("warning",("Couldn't use record count on const keypart"));
   }
-  DBUG_RETURN(HA_POS_ERROR);			/* This shouldn't happend */
+  quick_count= HA_POS_ERROR;
+  DBUG_RETURN(false);			/* This shouldn't happend */
 }
 
 /*
@@ -5859,8 +5867,9 @@ make_join_statistics(JOIN *join, List<TABLE_LIST> &tables_list,
                               (SORT_INFO*) 0, 1, &error);
           if (!select)
             goto error;
-          records= get_quick_record_count(join->thd, select, s->table,
-                                          &s->const_keys, join->row_limit);
+          if (get_quick_record_count(join->thd, select, s->table,
+                                     &s->const_keys, join->row_limit, records))
+            goto error;
 
           /*
             Range analyzer might have modified the condition. Put it the new
