@@ -9,6 +9,7 @@ set @old_domain_parallel_threads= @@global.slave_domain_parallel_threads;
 set @old_parallel_mode= @@global.slave_parallel_mode;
 set @old_slave_transaction_retries= @@global.slave_transaction_retries;
 set @old_innodb_lock_wait_timeout= @@global.innodb_lock_wait_timeout;
+set @old_log_slave_retries= @@global.log_slave_retries;
 set @old_log_slave_retries_max= @@global.log_slave_retries_max;
 include/stop_slave.inc
 change master to master_use_gtid= slave_pos;
@@ -17,6 +18,7 @@ set global slave_domain_parallel_threads= 1;
 set global slave_parallel_mode= optimistic;
 set global slave_transaction_retries= 4;
 set global innodb_lock_wait_timeout= 1;
+set global log_slave_retries= 1;
 set global log_slave_retries_max= 2;
 include/start_slave.inc
 set global innodb_print_all_deadlocks= on;
@@ -79,6 +81,7 @@ set global slave_domain_parallel_threads= @old_domain_parallel_threads;
 set global slave_parallel_mode= @old_parallel_mode;
 set global slave_transaction_retries= @old_slave_transaction_retries;
 set global innodb_lock_wait_timeout= @old_innodb_lock_wait_timeout;
+set global log_slave_retries= @old_log_slave_retries;
 set global log_slave_retries_max= @old_log_slave_retries_max;
 include/start_slave.inc
 set global innodb_print_all_deadlocks= default;

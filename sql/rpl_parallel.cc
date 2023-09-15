@@ -776,7 +776,7 @@ retry_event_group(rpl_group_info *rgi, rpl_parallel_thread *rpt,
   Format_description_log_event *description_event= NULL;
 
 do_retry:
-  if (slave_retries_file &&
+  if (slave_retries_file.get() &&
       (!opt_slave_retries_max_log || retries < opt_slave_retries_max_log || errmsg))
     slave_retries_print("[R%lu] event: %lu of %lu  log_pos: %lu  GTID: %u-%u-%llu  query_id: %ld  reason: %u%s%s",
                         retries + 1, event_count, events_to_execute,
@@ -1105,7 +1105,7 @@ check_retry:
   } while (event_count < events_to_execute);
 
 err:
-  if (slave_retries_file)
+  if (slave_retries_file.get())
     slave_retries_print("[R%lu] %s event: %lu of %lu  log_pos: %lu  GTID: %u-%u-%llu  query_id: %ld  result: %u%s%s",
                         (err ? retries : retries + 1), (err ? "[FAILURE]" : "[SUCCESS]"),
                         event_count, events_to_execute, log_pos,
