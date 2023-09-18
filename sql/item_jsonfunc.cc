@@ -4800,13 +4800,15 @@ bool Item_func_json_schema_valid::fix_length_and_dec(THD *thd)
   json_engine_t je;
   bool res= 0;
 
-  String *js= args[0]->val_json(&tmp_js);
+  String *js= NULL;
 
-  if ((null_value= args[0]->null_value))
+  if (!args[0]->const_item() || (null_value= args[0]->null_value))
   {
     null_value= 1;
     return 0;
   }
+  js= args[0]->val_json(&tmp_js);
+
   json_scan_start(&je, js->charset(), (const uchar *) js->ptr(),
                   (const uchar *) js->ptr() + js->length());
   if (!create_object_and_handle_keyword(thd, &je, &keyword_list,
