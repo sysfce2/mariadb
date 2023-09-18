@@ -1223,7 +1223,8 @@ bool mysql_derived_fill(THD *thd, LEX *lex, TABLE_LIST *derived)
   if (unit->executed && !derived_is_recursive &&
       (unit->uncacheable & UNCACHEABLE_DEPENDENT))
   {
-    if ((res= derived->table->file->ha_delete_all_rows()))
+    if (derived->table->file->is_open() &&
+        (res= derived->table->file->ha_delete_all_rows()))
       goto err;
     JOIN *join= unit->first_select()->join;
     join->first_record= false;
@@ -1231,9 +1232,10 @@ bool mysql_derived_fill(THD *thd, LEX *lex, TABLE_LIST *derived)
          i < join->top_join_tab_count + join->aggr_tables;
          i++)
     { 
-      if ((res= join->join_tab[i].table->file->ha_delete_all_rows()))
+      if (join->join_tab[i].table->file->is_open() &&
+          (res= join->join_tab[i].table->file->ha_delete_all_rows()))
         goto err;
-    }   
+    }
   }
   
   if (derived_is_recursive)
