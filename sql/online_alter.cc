@@ -6,6 +6,7 @@
 
 static handlerton *online_alter_hton;
 
+using Online_alter_cache_list= ilist<online_alter_cache_data>;
 
 class online_alter_cache_data: public Sql_alloc, public ilist_node<>,
                                public binlog_cache_data
@@ -50,12 +51,31 @@ online_alter_cache_data *setup_cache_data(MEM_ROOT *root, TABLE_SHARE *share)
 }
 
 
-static online_alter_cache_data *get_cache_data(THD *thd, TABLE *table)
+static Online_alter_cache_list &get_cache_list(handlerton *ht, THD *thd)
 {
-  ilist<online_alter_cache_data> &list= thd->online_alter_cache_list;
+  void *data= thd_get_ha_data(thd, ht);
+  DBUG_ASSERT(data);
+  return *(Online_alter_cache_list*)data;
+}
 
+
+static Online_alter_cache_list &get_or_create_cache_list(THD *thd)
+{
+  void *data= thd_get_ha_data(thd, online_alter_hton);
+  if (!data)
+  {
+    data= new Online_alter_cache_list();
+    thd_set_ha_data(thd, online_alter_hton, data);
+  }
+  return *(Online_alter_cache_list*)data;
+}
+
+
+static online_alter_cache_data* get_cache_data(THD *thd, TABLE *table)
+{
+  auto &cache_list= get_or_create_cache_list(thd);
   /* we assume it's very rare to have more than one online ALTER running */
-  for (auto &cache: list)
+  for (auto &cache: cache_list)
   {
     if (cache.sink_log == table->s->online_alter_binlog)
       return &cache;
@@ -63,7 +83,7 @@ static online_alter_cache_data *get_cache_data(THD *thd, TABLE *table)
 
   MEM_ROOT *root= &thd->transaction->mem_root;
   auto *new_cache_data= setup_cache_data(root, table->s);
-  list.push_back(*new_cache_data);
+  cache_list.push_back(*new_cache_data);
 
   return new_cache_data;
 }
@@ -130,12 +150,13 @@ int online_alter_end_trans(handlerton *hton, THD *thd, bool all, bool commit)
 {
   DBUG_ENTER("online_alter_end_trans");
   int error= 0;
-  if (thd->online_alter_cache_list.empty())
+  auto &cache_list= get_cache_list(hton, thd);
+  if (cache_list.empty())
     DBUG_RETURN(0);
 
   bool is_ending_transaction= ending_trans(thd, all);
 
-  for (auto &cache: thd->online_alter_cache_list)
+  for (auto &cache: cache_list)
   {
     auto *binlog= cache.sink_log;
     DBUG_ASSERT(binlog);
@@ -179,14 +200,12 @@ int online_alter_end_trans(handlerton *hton, THD *thd, bool all, bool commit)
     {
       my_error(ER_ERROR_ON_WRITE, MYF(ME_ERROR_LOG),
                binlog->get_name(), errno);
-      cleanup_cache_list(thd->online_alter_cache_list,
-                         is_ending_transaction);
+      cleanup_cache_list(cache_list, is_ending_transaction);
       DBUG_RETURN(error);
     }
   }
 
-  cleanup_cache_list(thd->online_alter_cache_list,
-                     is_ending_transaction);
+  cleanup_cache_list(cache_list, is_ending_transaction);
 
   for (TABLE *table= thd->open_tables; table; table= table->next)
     table->online_alter_cache= NULL;
@@ -202,13 +221,14 @@ SAVEPOINT* savepoint_add(THD *thd, LEX_CSTRING name, SAVEPOINT **list,
 int online_alter_savepoint_set(THD *thd, LEX_CSTRING name)
 {
   DBUG_ENTER("binlog_online_alter_savepoint");
-  if (thd->online_alter_cache_list.empty())
+  auto &cache_list= get_cache_list(online_alter_hton, thd);
+  if (cache_list.empty())
     DBUG_RETURN(0);
 
   if (savepoint_alloc_size < sizeof (SAVEPOINT) + sizeof(my_off_t))
     savepoint_alloc_size= sizeof (SAVEPOINT) + sizeof(my_off_t);
 
-  for (auto &cache: thd->online_alter_cache_list)
+  for (auto &cache: cache_list)
   {
     if (cache.hton->savepoint_set == NULL)
       continue;
@@ -228,7 +248,9 @@ int online_alter_savepoint_set(THD *thd, LEX_CSTRING name)
 int online_alter_savepoint_rollback(THD *thd, LEX_CSTRING name)
 {
   DBUG_ENTER("online_alter_savepoint_rollback");
-  for (auto &cache: thd->online_alter_cache_list)
+
+  auto &cache_list= get_cache_list(online_alter_hton, thd);
+  for (auto &cache: cache_list)
   {
     if (cache.hton->savepoint_set == NULL)
       continue;
@@ -246,7 +268,11 @@ int online_alter_savepoint_rollback(THD *thd, LEX_CSTRING name)
 
 static int online_alter_close_connection(handlerton *hton, THD *thd)
 {
-  DBUG_ASSERT(thd->online_alter_cache_list.empty());
+  Ha_data &ha= thd->ha_data[online_alter_hton->slot];
+  auto *cache_list= (Online_alter_cache_list*)ha.ha_ptr;
+
+  DBUG_ASSERT(!cache_list || cache_list->empty());
+  delete cache_list;
   return 0;
 }
 
