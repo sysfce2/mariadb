@@ -716,12 +716,14 @@ static int compute_vcols(MI_INFO *info, uchar *record, int keynum)
   TABLE *table= (TABLE*)(info->external_ref);
   if (!current_thd)
     set_current_thd(table->in_use);
-  table->move_fields(table->field, record, table->field[0]->record_ptr());
+  uchar *old_record= table->field[0]->record_ptr();
+  table->move_fields(table->field, record, old_record);
   if (keynum == -1) // update all vcols
   {
     int error= table->update_virtual_fields(table->file, VCOL_UPDATE_FOR_READ);
     if (table->update_virtual_fields(table->file, VCOL_UPDATE_INDEXED))
       error= 1;
+    table->move_fields(table->field, old_record, record);
     mysql_mutex_unlock(&info->s->intern_lock);
     return error;
   }
@@ -734,6 +736,7 @@ static int compute_vcols(MI_INFO *info, uchar *record, int keynum)
     if (f->vcol_info && !f->vcol_info->stored_in_db)
       table->update_virtual_field(f, false);
   }
+  table->move_fields(table->field, old_record, record);
   mysql_mutex_unlock(&info->s->intern_lock);
   return 0;
 }
