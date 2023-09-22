@@ -1293,24 +1293,6 @@ int main(int argc,char *argv[])
   completion_hash_init(&ht, 128);
   init_alloc_root(PSI_NOT_INSTRUMENTED, &hash_mem_root, 16384, 0, MYF(0));
 
-#ifdef MYSQL_CLIENT
-  /*
-    let's disable opt_ssl_verify_server_cert if neither CA nor FP and
-    nor password were specified and the protocol is TCP.
-  */
-#define no(S) (!(S) || !*(S))
-  if (opt_ssl_verify_server_cert==2 && no(opt_ssl_ca) && no(opt_ssl_capath) &&
-      no(opt_tls_fp) && no(opt_tls_fplist) && no(opt_password) &&
-      (opt_mysql_port || opt_protocol == MYSQL_PROTOCOL_TCP))
-
-  {
-    printf("WARNING: option --ssl-verify-server-cert is disabled, "
-           "because of an insecure passwordless login.\n");
-    opt_ssl_verify_server_cert= 0;
-  }
-#undef no
-#endif
-
   if (sql_connect(current_host,current_db,current_user,opt_password,
 		  opt_silent))
   {
@@ -1515,7 +1497,7 @@ static bool do_connect(MYSQL *mysql, const char *host, const char *user,
 {
   if (opt_secure_auth)
     mysql_options(mysql, MYSQL_SECURE_AUTH, (char *) &opt_secure_auth);
-  SET_SSL_OPTS(mysql);
+  SET_SSL_OPTS_WITH_CHECK(mysql);
   if (opt_protocol)
     mysql_options(mysql,MYSQL_OPT_PROTOCOL,(char*)&opt_protocol);
   if (opt_plugin_dir && *opt_plugin_dir)
