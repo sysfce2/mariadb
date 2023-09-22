@@ -120,17 +120,25 @@ end:
 static X509 *vio_gencert(EVP_PKEY *pkey)
 {
   X509 *x;
+  X509_NAME *name;
 
   if (!(x= X509_new()))
     goto err;
 
-  if (!(X509_gmtime_adj(X509_get_notBefore(x), 0)))
+  if (!(name= X509_get_subject_name(x)))
     goto err;
-  if (!(X509_gmtime_adj(X509_get_notAfter(x), 60*60*24*365*10)))
+  if (!X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+         (uchar*)STRING_WITH_LEN("MariaDB Server"), -1, 0))
     goto err;
-  if (!(X509_set_pubkey(x, pkey)))
+  if (!X509_set_issuer_name(x, name))
     goto err;
-  if (!(X509_sign(x, pkey, EVP_sha256())))
+  if (!X509_gmtime_adj(X509_get_notBefore(x), 0))
+    goto err;
+  if (!X509_gmtime_adj(X509_get_notAfter(x), 60*60*24*365*10))
+    goto err;
+  if (!X509_set_pubkey(x, pkey))
+    goto err;
+  if (!X509_sign(x, pkey, EVP_sha256()))
     goto err;
 
   return x;
