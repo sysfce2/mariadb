@@ -175,6 +175,8 @@ vio_set_cert_stuff(SSL_CTX *ctx, const char *cert_file, const char *key_file,
         fprintf(stderr, "SSL error: %s\n", sslGetErrString(*error));
         DBUG_RETURN(1);
       }
+      EVP_PKEY_free(pkey);      /* decrement refcnt */
+      X509_free(x509);          /* ditto */
     }
     DBUG_RETURN(0);
   }
