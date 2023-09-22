@@ -729,19 +729,6 @@ enum Log_event_type
 };
 
 
-/*
-  Bit flags for what has been writing to cache. Used to
-  discard logs with table map events but not row events and
-  nothing else important. This is stored by cache.
-*/
-
-enum enum_logged_status
-{
-  LOGGED_TABLE_MAP= 1,
-  LOGGED_ROW_EVENT= 2,
-  LOGGED_NO_DATA=   4,
-  LOGGED_CRITICAL=  8
-};
 
 static inline bool LOG_EVENT_IS_QUERY(enum Log_event_type type)
 {
@@ -978,6 +965,19 @@ typedef struct st_print_event_info
   }
 } PRINT_EVENT_INFO;
 #endif
+
+/**
+  Bit flags for what has been writing to cache. Used to
+  discard logs with table map events but not row events and
+  nothing else important. This is stored by cache.
+*/
+enum enum_logged_status
+{
+  LOGGED_TABLE_MAP= 1,
+  LOGGED_ROW_EVENT= 2,
+  LOGGED_NO_DATA=   4,
+  LOGGED_CRITICAL=  8
+};
 
 /**
   This class encapsulates writing of Log_event objects to IO_CACHE.
