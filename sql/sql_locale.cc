@@ -1741,23 +1741,6 @@ static TYPELIB my_locale_typelib_day_names_sr_RS =
  { array_elements(my_locale_day_names_sr_RS)-1, "", my_locale_day_names_sr_RS, NULL };
 static TYPELIB my_locale_typelib_ab_day_names_sr_RS = 
  { array_elements(my_locale_ab_day_names_sr_RS)-1, "", my_locale_ab_day_names_sr_RS, NULL };
-MY_LOCALE my_locale_sr_YU /* Deprecated, use sr_RS instead */
-(
-  48,
-  "sr_YU",
-  "Serbian - Yugoslavia",
-  FALSE,
-  &my_locale_typelib_month_names_sr_RS,
-  &my_locale_typelib_ab_month_names_sr_RS,
-  &my_locale_typelib_day_names_sr_RS,
-  &my_locale_typelib_ab_day_names_sr_RS,
-  9,
-  10,
-  '.',        /* decimal point sr_RS */
-  '\0',       /* thousands_sep sr_RS */
-  "\x80",     /* grouping      sr_RS */
-  &global_errmsgs[sr_RS]
-);
 
 MY_LOCALE my_locale_sr_RS
 (
