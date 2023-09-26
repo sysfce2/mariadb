@@ -2345,11 +2345,11 @@ int ha_commit_or_rollback_by_xid(XID *xid, bool commit)
 
 #ifdef ENABLED_DEBUG_SYNC
     DBUG_EXECUTE_IF(
-        "stop_after_binlog_commit_by_xid",
+        "stop_after_binlog_cor_by_xid",
         DBUG_ASSERT(!debug_sync_set_action(
             current_thd,
             STRING_WITH_LEN(
-                "now SIGNAL xa_commit_binlogged WAIT_FOR continue_xac"))););
+                "now SIGNAL xa_cor_binlogged WAIT_FOR continue_xa_cor"))););
 #endif
 
   plugin_foreach(NULL, commit ? xacommit_handlerton : xarollback_handlerton,

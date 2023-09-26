@@ -2116,10 +2116,6 @@ int binlog_rollback_by_xid(handlerton *hton, XID *xid)
     rc= binlog_rollback(hton, thd, TRUE);
     thd->ha_data[hton->slot].ha_info[1].reset();
   }
-  if (!rc)
-  {
-    rc= acquire_xid(thd);
-  }
   if (thd->is_current_stmt_binlog_disabled())
   {
     thd->wakeup_subsequent_commits(rc);
