@@ -965,8 +965,9 @@ bool trans_xa_rollback(THD *thd)
     }
 
     XID_cache_element *xs;
-    if ((xs= xid_cache_search(thd, thd->lex->xid)) ||
-        (thd->rgi_slave && thd->rgi_slave->is_async_xac))
+    if ((xs= thd->rgi_slave && thd->rgi_slave->is_parallel_exec ?
+         xid_cache_search_maybe_wait(thd) :
+         xid_cache_search(thd, thd->lex->xid)))
     {
       bool res;
       bool xid_deleted= false;
