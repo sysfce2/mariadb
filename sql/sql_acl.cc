@@ -14291,18 +14291,10 @@ static void make_ssl_info(THD *thd, LEX_CSTRING salt, char *info)
   DBUG_ASSERT(thd->scramble[SCRAMBLE_LENGTH] == 0);
 
   LEX_CUSTRING fp= ssl_acceptor_fingerprint();
-  my_sha256_multi(digest, salt.str, salt.length,
-                  thd->scramble, (size_t)SCRAMBLE_LENGTH,
-                  fp.str, fp.length,
-                  NULL);
+  my_sha256_multi(digest, salt.str, salt.length, thd->scramble,
+                  (size_t)SCRAMBLE_LENGTH, fp.str, fp.length, NULL);
+  octet2hex(info, digest, sizeof(digest));
 
-  for (uint i=0; i < sizeof(digest); i++)
-  {
-    /* not a conventional hexadecimal but something easier to decode */
-    *info++= (digest[i] >> 4) + 'a';
-    *info++= (digest[i] & 15) + 'a';
-  }
-  *info= 0;
 #endif
 }
 
