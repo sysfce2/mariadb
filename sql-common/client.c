@@ -2608,24 +2608,20 @@ int run_plugin_auth(MYSQL *mysql, char *data, uint data_len,
   parse_ok_packet(mysql, pkt_length); /* set mysql->info */
   if (mysql->info && mysql->info[0] == '\1')
   {
-    uchar fp[128], buf[1024], digest[256/8], *s= (uchar*)mysql->info + 1;
+    uchar fp[128], buf[1024], digest[256/8];
     size_t buflen= sizeof(buf);
-    uint i, fplen= sizeof(fp);
+    uint fplen= sizeof(fp);
+    char *hexsig= mysql->info + 1, hexdigest[sizeof(digest)*2+1];
     X509 *cert= SSL_get_peer_certificate((SSL*)mysql->net.vio->ssl_arg);
     X509_digest(cert, EVP_sha256(), fp, &fplen);
     X509_free(cert);
     auth_plugin->hash_password_bin(mysql, buf, &buflen);
-    my_sha256_multi(digest, buf, buflen,
-                    mysql->scramble, SCRAMBLE_LENGTH, fp, fplen, NULL);
+    my_sha256_multi(digest, buf, buflen, mysql->scramble, SCRAMBLE_LENGTH,
+                    fp, fplen, NULL);
     mysql->info= NULL; /* no need to confuse the client with binary info */
 
-    for (i= 0; i < sizeof(digest) && s[0] && s[1]; i++, s+=2)
-    {
-      /* not a conventional hexadecimal but something easier to decode */
-      if ((s[0] - 'a') * 16 + s[1] - 'a' != digest[i])
-        break;
-    }
-    if (i == sizeof(digest) && s[0] == 0)
+    octet2hex(hexdigest, digest, sizeof(digest));
+    if (strcmp(hexdigest, hexsig) == 0)
       DBUG_RETURN(0); /* phew. self-signed certificate is validated! */
   }
 
