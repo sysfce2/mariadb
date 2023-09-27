@@ -26,8 +26,8 @@
     case OPT_SSL_CRLPATH:
     case OPT_TLS_VERSION:
 #ifdef MYSQL_CLIENT
-    case OPT_TLS_FP:
-    case OPT_TLS_FPLIST:
+    case OPT_SSL_FP:
+    case OPT_SSL_FPLIST:
 #endif
     /*
       Enable use of SSL if we are using any ssl option

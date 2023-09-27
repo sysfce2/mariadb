@@ -32,8 +32,8 @@ SSL_STATIC char *opt_ssl_crl     = 0;
 SSL_STATIC char *opt_ssl_crlpath = 0;
 SSL_STATIC char *opt_tls_version = 0;
 #ifdef MYSQL_CLIENT
-SSL_STATIC char *opt_tls_fp      = 0;
-SSL_STATIC char *opt_tls_fplist  = 0;
+SSL_STATIC char *opt_ssl_fp      = 0;
+SSL_STATIC char *opt_ssl_fplist  = 0;
 SSL_STATIC my_bool opt_ssl_verify_server_cert= 2;
 
 #define SET_SSL_OPTS(M)                                                 \
@@ -45,8 +45,8 @@ SSL_STATIC my_bool opt_ssl_verify_server_cert= 2;
       mysql_options((M), MYSQL_OPT_SSL_CRL, opt_ssl_crl);               \
       mysql_options((M), MYSQL_OPT_SSL_CRLPATH, opt_ssl_crlpath);       \
       mysql_options((M), MARIADB_OPT_TLS_VERSION, opt_tls_version);     \
-      mysql_options((M), MARIADB_OPT_TLS_PEER_FP, opt_tls_fp);          \
-      mysql_options((M), MARIADB_OPT_TLS_PEER_FP_LIST, opt_tls_fplist); \
+      mysql_options((M), MARIADB_OPT_TLS_PEER_FP, opt_ssl_fp);          \
+      mysql_options((M), MARIADB_OPT_TLS_PEER_FP_LIST, opt_ssl_fplist); \
     }                                                                   \
     mysql_options((M),MYSQL_OPT_SSL_VERIFY_SERVER_CERT,                 \
                   &opt_ssl_verify_server_cert);                         \
@@ -61,8 +61,8 @@ SSL_STATIC my_bool opt_ssl_verify_server_cert= 2;
     if (opt_ssl_verify_server_cert==2 &&                                \
         !(opt_ssl_ca && opt_ssl_ca[0]) &&                               \
         !(opt_ssl_capath && opt_ssl_capath[0]) &&                       \
-        !(opt_tls_fp && opt_tls_fp[0]) &&                               \
-        !(opt_tls_fplist && opt_tls_fplist[0]) &&                       \
+        !(opt_ssl_fp && opt_ssl_fp[0]) &&                               \
+        !(opt_ssl_fplist && opt_ssl_fplist[0]) &&                       \
         !(opt_password && opt_password[0]) &&                           \
         opt_protocol == MYSQL_PROTOCOL_TCP)                             \
     {                                                                   \
