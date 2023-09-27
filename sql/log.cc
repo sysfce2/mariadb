@@ -2023,7 +2023,7 @@ static bool acquire_xid(THD *thd)
   if (thd->rgi_slave &&
       thd->rgi_slave->is_async_xac &&
       thd->rgi_slave->is_parallel_exec &&
-      thd->rgi_slave->gtid_ev_flags2 | Gtid_log_event::FL_COMPLETED_XA)
+      thd->rgi_slave->gtid_ev_flags2 & Gtid_log_event::FL_COMPLETED_XA)
   {
     XID_STATE &xid_state= thd->transaction->xid_state;
 
