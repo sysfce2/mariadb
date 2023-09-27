@@ -472,11 +472,11 @@ static ulint trx_rseg_get_n_undo_tablespaces()
 }
 
 /** Open an undo tablespace.
-@param[in]	create	whether undo tablespaces are being created
-@param[in]	name	tablespace file name
-@param[in]	i	undo tablespace count
-@return undo tablespace identifier
-@retval 0 on failure */
+@param[in]	create	 whether undo tablespaces are being created
+@param[in]	name	 tablespace file name
+@param[in]	i	 undo tablespace count
+@retval 0 if file doesn't exist, SRV_SPACE_ID_UPPER_BOUND if page0
+is corrupted */
 static ulint srv_undo_tablespace_open(bool create, const char* name, ulint i)
 {
   bool success;
@@ -519,7 +519,7 @@ static ulint srv_undo_tablespace_open(bool create, const char* name, ulint i)
 err_exit:
       ib::error() << "Unable to read first page of file " << name;
       aligned_free(page);
-      return err;
+      return SRV_SPACE_ID_UPPER_BOUND;
     }
 
     uint32_t id= mach_read_from_4(FIL_PAGE_SPACE_ID + page);
@@ -532,15 +532,17 @@ err_exit:
       goto err_exit;
     }
 
+    space_id= id;
     fsp_flags= mach_read_from_4(FSP_HEADER_OFFSET + FSP_SPACE_FLAGS + page);
     if (buf_page_is_corrupted(false, page, fsp_flags))
     {
       ib::error() << "Checksum mismatch in the first page of file " << name;
-      err= DB_CORRUPTION;
-      goto err_exit;
+      /* Recovery the page0 from doublewrite buffer */
+      if (recv_sys.dblwr.restore_first_page(space_id, name, fh))
+        goto err_exit;
+      err= DB_SUCCESS;
     }
 
-    space_id= id;
     aligned_free(page);
   }
 
@@ -651,6 +653,9 @@ static dberr_t srv_all_undo_tablespaces_open(bool create_new_db, ulint n_undo)
     char name[OS_FILE_MAX_PATH];
     snprintf(name, sizeof name, "%s/undo%03zu", srv_undo_dir, i + 1);
     ulint space_id= srv_undo_tablespace_open(create_new_db, name, i);
+    if (space_id == SRV_SPACE_ID_UPPER_BOUND)
+      return DB_CORRUPTION;
+
     if (!space_id)
     {
       if (!create_new_db)
@@ -680,7 +685,8 @@ static dberr_t srv_all_undo_tablespaces_open(bool create_new_db, ulint n_undo)
   {
      char name[OS_FILE_MAX_PATH];
      snprintf(name, sizeof name, "%s/undo%03zu", srv_undo_dir, i);
-     if (!srv_undo_tablespace_open(create_new_db, name, i))
+     ulint space_id= srv_undo_tablespace_open(create_new_db, name, i);
+     if (!space_id || space_id == SRV_SPACE_ID_UPPER_BOUND)
        break;
      ++srv_undo_tablespaces_open;
   }
