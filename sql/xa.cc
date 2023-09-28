@@ -79,8 +79,9 @@ public:
   uint rm_error;
   enum xa_states xa_state;
   XID xid;
-  std::atomic<wait_for_commit *> waiter;
-  std::atomic<wait_for_commit *> p_waiter;
+  /* parallel slave worker waiters. `c` stands for complete, `p` prepare */
+  std::atomic<wait_for_commit *> c_waiter; // set by asynch run xa-"complete"
+  std::atomic<wait_for_commit *> p_waiter; // set by duplicate xid xa-start
 
   bool is_set(int32_t flag)
   { return m_state.load(std::memory_order_relaxed) & flag; }
@@ -137,7 +138,7 @@ public:
     element->rm_error= 0;
     element->xa_state= new_element->xa_state;
     element->xid.set(new_element->xid);
-    element->waiter= element->p_waiter= NULL;
+    element->c_waiter= element->p_waiter= NULL;
     new_element->xid_cache_element= element;
   }
   static void lf_alloc_constructor(uchar *ptr)
@@ -277,15 +278,12 @@ XID_cache_element *xid_cache_search(THD *thd, XID *xid)
 
 const int SPIN_MAX= 20;
 /**
-  The function tries inserting until succeeds.
+  The function tries inserting a xid until succeeds.
   Similarly to @c xid_cache_search_maybe_wait, it is expecting the xid, supplied
   by the THD argument will be eventually released for acquisition.
-  Delay between two consequent insert attempts is chosen to be small yet
-  sufficient to take over the xid within few loop runs from a thread that must
-  be about to finish its xa commit work.
 
-  @return XID_cache_element poiter or NULL when the search is interruped
-          by kill.
+  @return false as success,
+          true otherwise.
 */
 bool xid_cache_insert_maybe_wait(THD* thd)
 {
@@ -331,12 +329,22 @@ bool xid_cache_insert_maybe_wait(THD* thd)
       }
       thd->EXIT_COND(&old_stage);
     }
-    rc= xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid);
+    if (!thd->check_killed(1))
+      rc= xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid);
   }
 
   return rc;
 }
 
+/**
+  The function tries get access to a xid by a XA-"complete" of slave parallel
+  worker. Similarly to @c xid_cache_insert_maybe_wait, it is expecting the xid,
+  supplied  by the THD argument, will be soon (the parent XAP has already
+  waken up transactions before the current one) released for acquisition.
+
+  @return XID_cache_element poiter or NULL when the search is interruped
+          by kill.
+*/
 XID_cache_element * xid_cache_search_maybe_wait(THD* thd)
 {
   if (thd->fix_xid_hash_pins())
@@ -368,7 +376,7 @@ XID_cache_element * xid_cache_search_maybe_wait(THD* thd)
         wait_for_commit *waiter= thd->wait_for_commit_ptr;
         bool waiter_cleared= true;  // assumption
 
-        element->waiter.store(waiter, std::memory_order_release);
+        element->c_waiter.store(waiter, std::memory_order_release);
         lf_hash_search_unpin(thd->xid_hash_pins);
 
         mysql_mutex_lock(&waiter->LOCK_wait_commit);
@@ -377,11 +385,11 @@ XID_cache_element * xid_cache_search_maybe_wait(THD* thd)
                         &old_stage);
         if (!element->acquire_recovered())
         {
-          while (element->waiter.load(std::memory_order_acquire) &&
+          while (element->c_waiter.load(std::memory_order_relaxed) &&
                  likely(!thd->check_killed(1)))
             mysql_cond_wait(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit);
 
-          if (element->waiter.load(std::memory_order_acquire))
+          if (element->c_waiter.load(std::memory_order_relaxed))
           {
             waiter_cleared= false;
             DBUG_ASSERT(thd->check_killed(1));
@@ -614,13 +622,17 @@ bool trans_xa_start(THD *thd)
   {
     MYSQL_SET_TRANSACTION_XID(thd->m_transaction_psi, thd->lex->xid, XA_ACTIVE);
 
-    bool parallel_slave_xap_status= true; // presumed ordinary XA START
+    bool parallel_slave_xap_status= true; // `true` presumes ordinary XA START.
     if (thd->rgi_slave &&
         thd->rgi_slave->is_parallel_exec)
     {
       DBUG_ASSERT(thd->rgi_slave->gtid_ev_flags2 |
                   Gtid_log_event::FL_PREPARED_XA);
-      // normally flips to false to designate the slave's XA_prepare is done
+      /*
+        The status gets refined below normally to flip in which case `false`
+        designates the xid insert is done.
+        Possibly incurred wait is when xid is duplicate.
+      */
       parallel_slave_xap_status= xid_cache_insert_maybe_wait(thd);
     }
 
@@ -773,6 +785,10 @@ bool trans_xa_commit(THD *thd)
     }
     DBUG_ASSERT(!thd->rgi_slave || !thd->rgi_slave->is_async_xac);
 
+    /*
+      Parallel slave may not succeed acquiring xid, in which case
+      @c is_async_xac is @c true, it will do that later.
+    */
     XID_cache_element *xs;
     if ((xs= xid_cache_search(thd, thd->lex->xid)) ||
         (thd->rgi_slave && thd->rgi_slave->is_async_xac))
@@ -965,9 +981,8 @@ bool trans_xa_rollback(THD *thd)
     }
 
     XID_cache_element *xs;
-    if ((xs= thd->rgi_slave && thd->rgi_slave->is_parallel_exec ?
-         xid_cache_search_maybe_wait(thd) :
-         xid_cache_search(thd, thd->lex->xid)))
+    if ((xs= xid_cache_search(thd, thd->lex->xid)) ||
+        (thd->rgi_slave && thd->rgi_slave->is_async_xac))
     {
       bool res;
       bool xid_deleted= false;
@@ -1334,12 +1349,12 @@ static bool slave_applier_reset_xa_trans(THD *thd)
 
   ha_close_connection(thd);
   save_xce->acquired_to_recovered();
-  wait_for_commit *waiter= save_xce->waiter.load(std::memory_order_acquire);
+  wait_for_commit *waiter= save_xce->c_waiter.load(std::memory_order_acquire);
   if (waiter)
   {
     // unmark and signal
     mysql_mutex_lock(&waiter->LOCK_wait_commit);
-    save_xce->waiter.store(NULL, std::memory_order_release);
+    save_xce->c_waiter.store(NULL, std::memory_order_relaxed);
     mysql_cond_signal(&waiter->COND_wait_xa_commit);
     mysql_mutex_unlock(&waiter->LOCK_wait_commit);
   }

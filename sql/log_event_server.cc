@@ -3314,16 +3314,23 @@ Gtid_log_event::Gtid_log_event(THD *thd_arg, uint64 seq_no_arg,
   XID_STATE &xid_state= thd->transaction->xid_state;
   if (is_transactional)
   {
-    if (xid_state.is_explicit_XA() &&
-        (thd->lex->sql_command == SQLCOM_XA_PREPARE ||
-         xid_state.get_state_code() == XA_PREPARED))
+    bool is_async_xac= false;
+    if ((xid_state.is_explicit_XA() &&
+         (thd->lex->sql_command == SQLCOM_XA_PREPARE ||
+          xid_state.get_state_code() == XA_PREPARED)) ||
+        (is_async_xac= (thd->rgi_slave &&
+                        thd->rgi_slave->is_parallel_exec &&
+                        thd->rgi_slave->is_async_xac)))
     {
       DBUG_ASSERT(!(thd->lex->sql_command == SQLCOM_XA_COMMIT &&
                     thd->lex->xa_opt == XA_ONE_PHASE));
+      DBUG_ASSERT(!is_async_xac ||
+                  thd->lex->sql_command == SQLCOM_XA_ROLLBACK ||
+                  thd->lex->sql_command == SQLCOM_XA_COMMIT);
 
       flags2|= thd->lex->sql_command == SQLCOM_XA_PREPARE ?
         FL_PREPARED_XA : FL_COMPLETED_XA;
-      xid.set(xid_state.get_xid());
+      xid.set(thd->lex->xid);
     }
     /* count non-zero extra recoverable engines; total = extra + 1 */
     if (has_xid)

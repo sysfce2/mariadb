@@ -1862,14 +1862,15 @@ binlog_commit_flush_trx_cache(THD *thd, bool all, binlog_cache_mngr *cache_mngr,
   if (thd->lex->sql_command == SQLCOM_XA_COMMIT &&
       thd->lex->xa_opt != XA_ONE_PHASE)
   {
-    DBUG_ASSERT(thd->transaction->xid_state.is_explicit_XA() ||
-                (thd->rgi_slave && thd->rgi_slave->is_async_xac));
+    bool is_async_xac= (thd->rgi_slave &&
+                        thd->rgi_slave->is_async_xac);
+    DBUG_ASSERT(thd->transaction->xid_state.is_explicit_XA() || is_async_xac);
     DBUG_ASSERT(thd->transaction->xid_state.get_state_code() ==
-                XA_PREPARED || (thd->rgi_slave && thd->rgi_slave->is_async_xac));
+                XA_PREPARED || is_async_xac);
+    DBUG_ASSERT(is_async_xac ||
+                thd->lex->xid->eq(thd->transaction->xid_state.get_xid()));
 
-    buflen= serialize_with_xid(thd->rgi_slave && thd->rgi_slave->is_async_xac ?
-                               thd->lex->xid : thd->transaction->xid_state.get_xid(),
-                               buf, query, q_len);
+    buflen= serialize_with_xid(thd->lex->xid, buf, query, q_len);
   }
   Query_log_event end_evt(thd, buf, buflen, TRUE, TRUE, TRUE, 0);
 
@@ -1894,13 +1895,21 @@ binlog_rollback_flush_trx_cache(THD *thd, bool all,
   const size_t q_len= sizeof(query) - 1; // do not count trailing 0
   char buf[q_len + ser_buf_size]= "ROLLBACK";
   size_t buflen= sizeof("ROLLBACK") - 1;
+  bool is_async_xac= false;
 
-  if (thd->transaction->xid_state.is_explicit_XA())
+  if (thd->transaction->xid_state.is_explicit_XA() ||
+      (is_async_xac= (thd->rgi_slave &&
+                      thd->rgi_slave->is_async_xac)))
   {
     /* for not prepared use plain ROLLBACK */
-    if (thd->transaction->xid_state.get_state_code() == XA_PREPARED)
-      buflen= serialize_with_xid(thd->transaction->xid_state.get_xid(),
+    if (thd->transaction->xid_state.get_state_code() == XA_PREPARED ||
+        is_async_xac)
+    {
+      DBUG_ASSERT(is_async_xac ||
+                  thd->lex->xid->eq(thd->transaction->xid_state.get_xid()));
+      buflen= serialize_with_xid(thd->lex->xid,
                                  buf, query, q_len);
+    }
   }
   Query_log_event end_evt(thd, buf, buflen, TRUE, TRUE, TRUE, 0);
 
@@ -2020,9 +2029,7 @@ static bool acquire_xid(THD *thd)
 {
   bool rc= false;
 
-  if (thd->rgi_slave &&
-      thd->rgi_slave->is_async_xac &&
-      thd->rgi_slave->is_parallel_exec &&
+  if (thd->rgi_slave && thd->rgi_slave->is_async_xac &&
       thd->rgi_slave->gtid_ev_flags2 & Gtid_log_event::FL_COMPLETED_XA)
   {
     XID_STATE &xid_state= thd->transaction->xid_state;
@@ -2116,6 +2123,10 @@ int binlog_rollback_by_xid(handlerton *hton, XID *xid)
     rc= binlog_rollback(hton, thd, TRUE);
     thd->ha_data[hton->slot].ha_info[1].reset();
   }
+  if (!rc)
+  {
+    rc= acquire_xid(thd);
+  }
   if (thd->is_current_stmt_binlog_disabled())
   {
     thd->wakeup_subsequent_commits(rc);
@@ -2127,7 +2138,13 @@ int binlog_rollback_by_xid(handlerton *hton, XID *xid)
 
 inline bool is_prepared_xa(THD *thd)
 {
-  return thd->transaction->xid_state.is_explicit_XA() &&
+  bool is_async_xac= (thd->rgi_slave && thd->rgi_slave->is_async_xac);
+  DBUG_ASSERT(!is_async_xac ||
+              thd->lex->sql_command == SQLCOM_XA_ROLLBACK ||
+              thd->lex->sql_command == SQLCOM_XA_COMMIT);
+
+  return is_async_xac ? true :
+    thd->transaction->xid_state.is_explicit_XA() &&
     thd->transaction->xid_state.get_state_code() == XA_PREPARED;
 }
 
@@ -2351,7 +2368,9 @@ static int binlog_rollback(handlerton *hton, THD *thd, bool all)
   }
 
   if (!cache_mngr->trx_cache.has_incident() && cache_mngr->trx_cache.empty() &&
-      (thd->transaction->xid_state.get_state_code() != XA_PREPARED ||
+      ((thd->transaction->xid_state.get_state_code() != XA_PREPARED &&
+        !(thd->rgi_slave && thd->rgi_slave->is_parallel_exec &&
+          thd->lex->sql_command == SQLCOM_XA_ROLLBACK)) ||
        !(thd->ha_data[binlog_hton->slot].ha_info[1].is_started() &&
          thd->ha_data[binlog_hton->slot].ha_info[1].is_trx_read_write())))
   {
@@ -8439,7 +8458,8 @@ MYSQL_BIN_LOG::trx_group_commit_leader(group_commit_entry *leader)
       DBUG_ASSERT(!cache_mngr->stmt_cache.empty() ||
                   !cache_mngr->trx_cache.empty()  ||
                   (current->thd->transaction->xid_state.is_explicit_XA() ||
-                   (current->thd->rgi_slave && current->thd->rgi_slave->is_async_xac)));
+                   (current->thd->rgi_slave &&
+                    current->thd->rgi_slave->is_async_xac)));
 
       if (unlikely((current->error= write_transaction_or_stmt(current,
                                                               commit_id))))
@@ -10571,7 +10591,6 @@ int TC_LOG_BINLOG::unlog_xa_prepare(THD *thd, bool all)
 
   if (thd->rgi_slave && thd->is_current_stmt_binlog_disabled())
   {
-    // todo: recovery comments
     rc= thd->wait_for_prior_commit();
     if (rc == 0)
       thd->wakeup_subsequent_commits(rc);

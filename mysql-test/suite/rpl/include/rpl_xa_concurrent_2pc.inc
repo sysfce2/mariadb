@@ -37,10 +37,17 @@ if (`SELECT !$is_xar && !$is_xac`)
 --source include/stop_slave.inc
 RESET SLAVE;
 set @@global.gtid_slave_pos= "";
+
+if ($is_xac)
+{
+--connection slave
 RESET MASTER;
 
 --connection master
 RESET MASTER;
+}
+
+--connection master
 create table t1 (a int primary key, b int) engine=innodb;
 
 # Slave locks this row before updates to pause transaction progress
@@ -158,18 +165,11 @@ XA PREPARE 'x2';
 --connection slave
 --source include/start_slave.inc
 
-if ($is_xac)
-{
-    --echo # Ensuring both phases of both transactions all execute concurrently
-    # Waiting for both XA COMMITs to binlog proves this, as they would not pass
-    # group commit if their preceding XA PREPAREs had not also binlogged
-    --let $count_xa_wait_workers= 2
-}
-if ($is_xar)
-{
-    --echo # Ensuring only the first XAR waits for engine preparation
-    --let $count_xa_wait_workers= 1
-}
+--echo # Ensuring both phases of both transactions all execute concurrently
+# Waiting for both XA "COMPLETE"s to binlog proves this, as they would not pass
+# group commit if their preceding XA PREPAREs had not also binlogged
+--let $count_xa_wait_workers= 2
+
 --let $wait_condition=SELECT count(*) = $count_xa_wait_workers FROM information_schema.processlist WHERE command = 'Slave_worker' AND state LIKE "Waiting for prior xa transaction"
 --source include/wait_condition.inc
 --echo # ..done
@@ -230,16 +230,8 @@ XA PREPARE 'x';
 --source include/wait_condition.inc
 
 --echo # Ensure second XA transaction's XAP waits for the first transaction
-if ($is_xac)
-{
-    --let $wait_condition=SELECT count(*) = 1 FROM information_schema.processlist WHERE command = 'Slave_worker' AND state LIKE "Waiting for prior xa transaction" AND info LIKE "XA START%"
-    --source include/wait_condition.inc
-}
-if ($is_xar)
-{
-    --let $wait_condition=SELECT count(*) = 2 FROM information_schema.processlist WHERE command = 'Slave_worker' AND state LIKE "Waiting for prior transaction to commit"
-    --source include/wait_condition.inc
-}
+--let $wait_condition=SELECT count(*) = 1 FROM information_schema.processlist WHERE command = 'Slave_worker' AND state LIKE "Waiting for prior xa transaction" AND info LIKE "XA START%"
+--source include/wait_condition.inc
 
 --echo # Verify first XA PREPARE has binlogged
 set debug_sync= "now wait_for xa_prepare_binlogged";
@@ -411,9 +403,14 @@ if (`select count(*) != $expected_row_count from t1 where a=$new_row_idx`)
 --connection master
 DROP TABLE t1;
 --source include/save_master_gtid.inc
+--let $binlog_file=query_get_value(SHOW MASTER STATUS, File, 1)
+--source include/show_binlog_events.inc
 
 --connection slave
 --source include/sync_with_master_gtid.inc
+--let $binlog_file=query_get_value(SHOW MASTER STATUS, File, 1)
+--source include/show_binlog_events.inc
+
 --source include/stop_slave.inc
 set @@GLOBAL.slave_parallel_threads= @save_par_thds;
 set @@GLOBAL.slave_parallel_mode= @save_par_mode;
