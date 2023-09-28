@@ -9,6 +9,7 @@ call mtr.add_suppression("InnoDB: Cannot apply log to \\[page id: space=[1-9][0-
 call mtr.add_suppression("InnoDB: Failed to read page .* from file '.*'");
 call mtr.add_suppression("InnoDB: OPT_PAGE_CHECKSUM mismatch");
 call mtr.add_suppression("InnoDB: Set innodb_force_recovery=1 to ignore corruption");
+call mtr.add_suppression("InnoDB: InnoDB Encrypiton key is not found for");
 # restart: --file-key-management-filename=MYSQL_TEST_DIR/std_data/keys2.txt
 SET GLOBAL innodb_file_per_table = ON;
 create table t1(a int not null primary key auto_increment, c char(200), b blob, index(b(10))) engine=innodb row_format=compressed encrypted=yes encryption_key_id=20;

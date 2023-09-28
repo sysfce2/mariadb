@@ -2577,6 +2577,8 @@ tablespace_check:
 		: NULL;
 
 	if (crypt_data && !crypt_data->is_key_found()) {
+		ib::error() << "Encryption key is not found for "
+			    << filename;
 		crypt_data->~fil_space_crypt_t();
 		ut_free(crypt_data);
 		return FIL_LOAD_INVALID;
