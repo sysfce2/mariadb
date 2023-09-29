@@ -1107,9 +1107,9 @@ trx_purge_attach_undo_recs(ulint n_purge_threads)
 	que_thr_t*	thr;
 	ulint		i;
 	ulint		n_pages_handled = 0;
-	ulint		n_thrs = UT_LIST_GET_LEN(purge_sys.query->thrs);
 
 	ut_a(n_purge_threads > 0);
+	ut_a(UT_LIST_GET_LEN(purge_sys.query->thrs) >= n_purge_threads);
 
         purge_sys_t::iterator head = purge_sys.tail;
 
@@ -1139,7 +1139,6 @@ trx_purge_attach_undo_recs(ulint n_purge_threads)
 	/* Fetch and parse the UNDO records. The UNDO records are added
 	to a per purge node vector. */
 	thr = UT_LIST_GET_FIRST(purge_sys.query->thrs);
-	ut_a(n_thrs > 0 && thr != NULL);
 
 	ut_ad(head <= purge_sys.tail);
 
@@ -1149,12 +1148,7 @@ trx_purge_attach_undo_recs(ulint n_purge_threads)
 	mem_heap_empty(purge_sys.heap);
 
 	while (UNIV_LIKELY(srv_undo_sources) || !srv_fast_shutdown) {
-		purge_node_t*		node;
 		trx_purge_rec_t		purge_rec;
-
-		/* Get the purge node. */
-		node = (purge_node_t*) thr->child;
-		ut_a(que_node_get_type(node) == QUE_NODE_PURGE);
 
 		/* Track the max {trx_id, undo_no} for truncating the
 		UNDO logs once we have purged the records. */
@@ -1168,7 +1162,7 @@ trx_purge_attach_undo_recs(ulint n_purge_threads)
 			&purge_rec.roll_ptr, &n_pages_handled,
 			purge_sys.heap);
 
-		if (purge_rec.undo_rec == NULL) {
+		if (!purge_rec.undo_rec) {
 			break;
 		} else if (purge_rec.undo_rec
 			   == reinterpret_cast<trx_undo_rec_t*>(-1)) {
@@ -1180,9 +1174,7 @@ trx_purge_attach_undo_recs(ulint n_purge_threads)
 
 		purge_node_t *& table_node = table_id_map[table_id];
 
-		if (table_node) {
-			node = table_node;
-		} else {
+		if (!table_node) {
 			thr = UT_LIST_GET_NEXT(thrs, thr);
 
 			if (!(++i % n_purge_threads)) {
@@ -1190,11 +1182,11 @@ trx_purge_attach_undo_recs(ulint n_purge_threads)
 					purge_sys.query->thrs);
 			}
 
-			ut_a(thr != NULL);
-			table_node = node;
+			table_node = static_cast<purge_node_t*>(thr->child);
+			ut_a(que_node_get_type(table_node) == QUE_NODE_PURGE);
 		}
 
-		node->undo_recs.push(purge_rec);
+		table_node->undo_recs.push(purge_rec);
 
 		if (n_pages_handled >= srv_purge_batch_size) {
 			break;
@@ -1256,8 +1248,6 @@ Run a purge batch.
 @return number of undo log pages handled in the batch */
 TRANSACTIONAL_TARGET ulint trx_purge(ulint n_tasks, ulint history_size)
 {
-	que_thr_t*	thr = NULL;
-
 	ut_ad(n_tasks > 0);
 
 	purge_sys.clone_oldest_view();
@@ -1288,6 +1278,8 @@ TRANSACTIONAL_TARGET ulint trx_purge(ulint n_tasks, ulint history_size)
 		}
 		srv_dml_needed_delay = delay;
 	}
+
+	que_thr_t* thr = nullptr;
 
 	/* Submit tasks to workers queue if using multi-threaded purge. */
 	for (ulint i = n_tasks; --i; ) {
