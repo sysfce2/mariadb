@@ -12136,7 +12136,7 @@ MYSQL_BIN_LOG::recover_gtid_index_start(const char *base_name, my_off_t offset)
     }
     my_errno= 0;
   }
-  Gtid_index_writer *gi= new Gtid_index_writer(base_name, offset,
+  Gtid_index_writer *gi= new Gtid_index_writer(base_name, (uint32)offset,
                                                &rpl_global_gtid_binlog_state);
   return gi;
 }
