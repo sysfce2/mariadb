@@ -259,7 +259,7 @@ XID_cache_element *xid_cache_search(THD *thd, XID *xid)
     /* The element can be removed from lf_hash by other thread, but
     element->acquire_recovered() will return false in this case. */
     if (!element->acquire_recovered())
-        element= 0;
+      element= 0;
     lf_hash_search_unpin(thd->xid_hash_pins);
     /* Once the element is acquired (i.e. got the ACQUIRED bit) by this thread,
     only this thread can delete it. The deletion happens in xid_cache_delete().
@@ -850,7 +850,7 @@ bool trans_xa_commit(THD *thd)
   _end_external_xid:
       xid_state.xid_cache_element= 0;
       res= res || thd->is_error();
-      if (!xid_deleted)
+      if (!xid_deleted && xs)
         xs->acquired_to_recovered();
       if (mdl_request.ticket)
       {
@@ -1031,7 +1031,7 @@ bool trans_xa_rollback(THD *thd)
 
   _end_external_xid:
       xid_state.xid_cache_element= 0;
-      if (!xid_deleted)
+      if (!xid_deleted && xs)
         xs->acquired_to_recovered();
       if (mdl_request.ticket)
       {

@@ -11,8 +11,8 @@
 #
 #   Test Case 2: If two XA transactions have different XIDs, if XA COMMIT ends
 # a transaction, ensure both phases of both transactions can all execute
-# concurrently. However, if XA ROLLBACK ends a transaction, ensure later XA
-# transactions wait until the ROLLBACK has binlogged before proceeding.
+# concurrently.
+#
 #
 #   Test Case 3: Two current 2-phase XA transactions with matching XIDs should
 # run one after the other, while each transaction still allows both phases of
@@ -29,7 +29,7 @@
 #   MDEV-31949: slow parallel replication of user xa
 #
 --source include/have_innodb.inc
---source include/have_log_bin.inc
+--source include/have_binlog_format_mixed.inc
 --source include/master-slave.inc
 
 --let $xa_complete_sym= COMMIT
