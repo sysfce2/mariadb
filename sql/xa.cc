@@ -259,18 +259,25 @@ XID_cache_element *xid_cache_search(THD *thd, XID *xid)
     /* The element can be removed from lf_hash by other thread, but
     element->acquire_recovered() will return false in this case. */
     if (!element->acquire_recovered())
+    {
       element= 0;
+      if (thd->rgi_slave && thd->rgi_slave->is_parallel_exec)
+      {
+        DBUG_ASSERT(thd->lex->sql_command == SQLCOM_XA_COMMIT ||
+                    thd->lex->sql_command == SQLCOM_XA_ROLLBACK);
+        thd->rgi_slave->is_async_xac= true;
+      }
+    }
     lf_hash_search_unpin(thd->xid_hash_pins);
     /* Once the element is acquired (i.e. got the ACQUIRED bit) by this thread,
     only this thread can delete it. The deletion happens in xid_cache_delete().
     See also the XID_cache_element documentation. */
     DEBUG_SYNC(thd, "xa_after_search");
   }
-  if (!element && thd->rgi_slave && thd->rgi_slave->is_parallel_exec)
+  else if (thd->rgi_slave && thd->rgi_slave->is_parallel_exec)
   {
     DBUG_ASSERT(thd->lex->sql_command == SQLCOM_XA_COMMIT ||
                 thd->lex->sql_command == SQLCOM_XA_ROLLBACK);
-    thd->rgi_slave->is_async_xac= true;
   }
 
   return element;
