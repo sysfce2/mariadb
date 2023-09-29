@@ -1064,57 +1064,23 @@ row_purge_parse_undo_rec(
 		break;
 	}
 
-	if (node->is_skipped(table_id)) {
+	node->table = node->tables[table_id].first;
+	if (node->table == reinterpret_cast<const dict_table_t*>(-1)) {
+		/* TODO: handle this at the end of the batch */
 		return false;
 	}
 
-	trx_id_t trx_id = TRX_ID_MAX;
-
-	if (node->retain_mdl(table_id)) {
-		ut_ad(node->table != NULL);
-		goto already_locked;
-	}
-
-try_again:
-	purge_sys.check_stop_FTS();
-
-	node->table = dict_table_open_on_id<true>(
-		table_id, false, DICT_TABLE_OP_NORMAL, node->purge_thd,
-		&node->mdl_ticket);
-
-	if (node->table == reinterpret_cast<dict_table_t*>(-1)) {
-		/* purge stop signal */
-		goto try_again;
-	}
-
-	if (!node->table) {
-		/* The table has been dropped: no need to do purge and
-		release mdl happened as a part of open process itself */
-		goto err_exit;
-	}
-
-already_locked:
 	ut_ad(!node->table->is_temporary());
 
 	clust_index = dict_table_get_first_index(node->table);
 
-	if (!clust_index || clust_index->is_corrupted()) {
+	if (clust_index->is_corrupted()) {
 		/* The table was corrupt in the data dictionary.
 		dict_set_corrupted() works on an index, and
 		we do not have an index to call it with. */
 		DBUG_ASSERT(table_id == node->table->id);
-		trx_id = node->table->def_trx_id;
-		if (!trx_id) {
-			trx_id = TRX_ID_MAX;
-		}
-
-err_exit:
-		node->close_table();
-		node->skip(table_id, trx_id);
 		return false;
 	}
-
-	node->last_table_id = table_id;
 
 	switch (type) {
 	case TRX_UNDO_INSERT_METADATA:
@@ -1265,8 +1231,6 @@ inline void purge_node_t::start()
   found_clust= false;
   rec_type= 0;
   cmpl_info= 0;
-  if (!purge_thd)
-    purge_thd= current_thd;
 }
 
 /** Reset the state at end
@@ -1274,10 +1238,8 @@ inline void purge_node_t::start()
 inline que_node_t *purge_node_t::end()
 {
   DBUG_ASSERT(common.type == QUE_NODE_PURGE);
-  close_table();
   ut_ad(undo_recs.empty());
   ut_d(in_progress= false);
-  purge_thd= nullptr;
   mem_heap_empty(heap);
   return common.parent;
 }

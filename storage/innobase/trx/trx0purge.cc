@@ -40,8 +40,6 @@ Created 3/26/1996 Heikki Tuuri
 #include "trx0trx.h"
 #include <mysql/service_wsrep.h>
 
-#include <unordered_map>
-
 /** Maximum allowable purge history length.  <=0 means 'infinite'. */
 ulong		srv_max_purge_lag = 0;
 
@@ -1102,7 +1100,7 @@ trx_purge_fetch_next_rec(
 @param n_purge_threads	number of purge threads
 @return new purge_sys.head and the number of undo log pages handled */
 static std::pair<purge_sys_t::iterator,ulint>
-trx_purge_attach_undo_recs(ulint n_purge_threads)
+trx_purge_attach_undo_recs(ulint n_purge_threads, THD *thd)
 {
 	que_thr_t*	thr;
 	ulint		i;
@@ -1175,18 +1173,40 @@ trx_purge_attach_undo_recs(ulint n_purge_threads)
 		purge_node_t *& table_node = table_id_map[table_id];
 
 		if (!table_node) {
+			std::pair<dict_table_t*,MDL_ticket*> p;
+			p.first = dict_table_open_on_id<true>(
+				table_id, false, DICT_TABLE_OP_NORMAL, thd,
+				&p.second);
+
+			if (UNIV_UNLIKELY(table_id == DICT_INDEXES_ID)) {
+				/* Operations on the SYS_INDEXES table
+				are always handled by the purge coordinator,
+				at the end of the batch, after closing
+				all table handles and releasing MDL */
+				i = 0;
+				goto use_coordinator;
+			}
+
 			thr = UT_LIST_GET_NEXT(thrs, thr);
 
 			if (!(++i % n_purge_threads)) {
+use_coordinator:
 				thr = UT_LIST_GET_FIRST(
 					purge_sys.query->thrs);
 			}
 
 			table_node = static_cast<purge_node_t*>(thr->child);
 			ut_a(que_node_get_type(table_node) == QUE_NODE_PURGE);
+			ut_d(auto i=)
+			table_node->tables.emplace(table_id, p);
+			ut_ad(i.second);
+			if (p.first) {
+				goto enqueue;
+			}
+		} else if (table_node->tables[table_id].first) {
+enqueue:
+			table_node->undo_recs.push(purge_rec);
 		}
-
-		table_node->undo_recs.push(purge_rec);
 
 		if (n_pages_handled >= srv_purge_batch_size) {
 			break;
@@ -1258,8 +1278,10 @@ TRANSACTIONAL_TARGET ulint trx_purge(ulint n_tasks, ulint history_size)
 	}
 #endif /* UNIV_DEBUG */
 
+	THD* const thd = current_thd;
+
 	/* Fetch the UNDO recs that need to be purged. */
-	const auto n = trx_purge_attach_undo_recs(n_tasks);
+	const auto n = trx_purge_attach_undo_recs(n_tasks, thd);
 
 	{
 		ulint delay = n.second ? srv_max_purge_lag : 0;
@@ -1294,6 +1316,23 @@ TRANSACTIONAL_TARGET ulint trx_purge(ulint n_tasks, ulint history_size)
 	que_run_threads(thr);
 
 	trx_purge_wait_for_workers_to_complete();
+
+	for (thr = UT_LIST_GET_FIRST(purge_sys.query->thrs); thr;
+	     thr = UT_LIST_GET_NEXT(thrs, thr)) {
+		purge_node_t* node = static_cast<purge_node_t*>(thr->child);
+		for (auto t : node->tables) {
+			if (!t.second.first) {
+			} else if (t.second.first
+				   == reinterpret_cast<dict_table_t*>(-1)) {
+				/* FIXME: retry */
+			} else {
+				dict_table_close(t.second.first, false, thd,
+						 t.second.second);
+			}
+		}
+		/* FIXME: process SYS_INDEXES */
+		node->tables.clear();
+	}
 
 	purge_sys.clone_end_view(n.first);
 
