@@ -38,5 +38,64 @@
 --let $xa_complete_sym= ROLLBACK
 --source include/rpl_xa_concurrent_2pc.inc
 
+--connection master
+create table t1 (a int) engine=innodb;
+--source include/save_master_gtid.inc
+
+--connection slave
+--source include/sync_with_master_gtid.inc
+call mtr.add_suppression("XAER_NOTA: Unknown XID");
+
+--let $i=2
+while ($i)
+{
+	--source include/stop_slave.inc
+	--replace_regex /[0-9]*-[0-9]*-[0-9]*/<value>/
+	change master to master_use_gtid = slave_pos;
+
+  --connection master
+	--let $complete=rollback
+	if ($i == 1)
+	{
+		--let $complete=commit
+	}
+	xa start '1'; insert into t1 set a=1; xa end '1'; xa prepare '1';
+	--eval xa $complete '1'
+	insert into t1 set a=2;
+	--source include/save_master_gtid.inc
+
+	--connection slave
+
+	# reposition the slave to skip one transaction from master
+	set @save_gtid_slave_pos= @@global.gtid_slave_pos;
+	SELECT CONCAT(domain_id,"-",server_id,"-", seq_no + 1)
+				 into @gtid_skip
+    		 FROM mysql.gtid_slave_pos
+				 WHERE seq_no = (SELECT DISTINCT max(seq_no) FROM mysql.gtid_slave_pos) limit 1;
+	set @@global.gtid_slave_pos = @gtid_skip;
+
+	start slave;
+	let $slave_sql_errno= 1397; # ER_XAER_NOTA
+	source include/wait_for_slave_sql_error.inc;
+	--eval select count(*) = $i % 2 as 'must be true' from t1;
+	--source include/stop_slave.inc
+
+	--disable_warnings
+	set @@global.gtid_slave_pos = @save_gtid_slave_pos;
+	--enable_warnings
+	--replace_regex /[0-9]*-[0-9]*-[0-9]*/<value>/
+	show warnings;
+	--source include/start_slave.inc
+	--source include/sync_with_master_gtid.inc
+
+	--dec $i
+}
+
+# MDEV-31949 cleanup
+--connection master
+drop table t1;
+
+--sync_slave_with_master
+
 --source include/rpl_end.inc
 --echo # End of rpl_xa_concurrent_2pc.test
