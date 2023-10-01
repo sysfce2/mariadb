@@ -306,6 +306,7 @@ bool xid_cache_insert_maybe_wait(THD* thd)
 
   if (rc)
   {
+    wait_for_commit *waiter= NULL;
     XID *xid= thd->lex->xid;
     XID_cache_element *element=
       (XID_cache_element*) lf_hash_search(&xid_cache, thd->xid_hash_pins,
@@ -313,31 +314,56 @@ bool xid_cache_insert_maybe_wait(THD* thd)
     if (element)
     {
       PSI_stage_info old_stage;
-      wait_for_commit *waiter= thd->wait_for_commit_ptr;
+      wait_for_commit *exp= NULL, *waiter= thd->wait_for_commit_ptr;
 #ifndef DBUG_OFF
       waiter->debug_done= false;
 #endif
 
-      element->p_waiter.store(waiter, std::memory_order_release);
-      lf_hash_search_unpin(thd->xid_hash_pins);
-
-      mysql_mutex_lock(&waiter->LOCK_wait_commit);
-      thd->ENTER_COND(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit,
-                      &stage_waiting_for_prior_xa_transaction,
-                      &old_stage);
-      if ((element=
-           (XID_cache_element*) lf_hash_search(&xid_cache, thd->xid_hash_pins,
-                                               xid->key(), xid->key_length())))
+      //element->p_waiter.store(waiter, std::memory_order_release);
+      while (unlikely(!element->
+                      p_waiter.compare_exchange_weak(exp, waiter,
+                                                     std::memory_order_acq_rel)))
       {
-        lf_hash_search_unpin(thd->xid_hash_pins);
-        mysql_cond_wait(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit);
-
-        DBUG_ASSERT(waiter->debug_done || thd->check_killed(1));
+        wait_for_commit *old;
+        if ((old= element->p_waiter.load(std::memory_order_acquire)) &&
+             old != waiter)
+        {
+          waiter= NULL; // notifier is seen
+          break;
+        }
+        else
+        {
+          exp= NULL;
+          (void) LF_BACKOFF();
+        }
       }
-      thd->EXIT_COND(&old_stage);
+      lf_hash_search_unpin(thd->xid_hash_pins);
+      if (waiter) // notifier was not seen
+      {
+        mysql_mutex_lock(&waiter->LOCK_wait_commit);
+        thd->ENTER_COND(&waiter->COND_wait_xa_commit, &waiter->LOCK_wait_commit,
+                        &stage_waiting_for_prior_xa_transaction,
+                        &old_stage);
+        if ((element=
+             (XID_cache_element*) lf_hash_search(&xid_cache, thd->xid_hash_pins,
+                                                 xid->key(), xid->key_length())))
+        {
+          lf_hash_search_unpin(thd->xid_hash_pins);
+          mysql_cond_wait(&waiter->COND_wait_xa_commit,
+                          &waiter->LOCK_wait_commit);
+
+          DBUG_ASSERT(waiter->debug_done || thd->check_killed(1));
+        }
+        thd->EXIT_COND(&old_stage);
+      }
     }
-    if (!thd->check_killed(1))
-      rc= xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid);
+    if (!(rc= thd->check_killed(1)))
+    {
+      // (element && waiter = NULL) indicates duplicate xid is being released
+      do
+        rc= xid_cache_insert(thd, &thd->transaction->xid_state, thd->lex->xid);
+      while (rc && element && !waiter && (ut_delay(1), true));
+    }
   }
 
   return rc;
@@ -472,9 +498,27 @@ static void xid_cache_delete(THD *thd, XID_cache_element *&element)
 {
   DBUG_ASSERT(thd->xid_hash_pins);
 
-  wait_for_commit *waiter= (thd->rgi_slave && thd->rgi_slave->is_parallel_exec) ?
-    element->p_waiter.load(std::memory_order_acquire) : NULL;
   element->mark_uninitialized();
+  wait_for_commit *exp= NULL, *waiter= NULL;
+  if (thd->rgi_slave && thd->rgi_slave->is_parallel_exec)
+  {
+    wait_for_commit *notifier= &thd->rgi_slave->commit_orderer;
+    while (unlikely(!element->
+                    p_waiter.compare_exchange_weak(exp, notifier,
+                                                   std::memory_order_acq_rel)))
+    {
+      waiter= element->p_waiter.load(std::memory_order_acquire);
+      if (waiter)
+      {
+        break;
+      }
+      else
+      {
+        DBUG_ASSERT(!exp);
+        (void) LF_BACKOFF();
+      }
+    }
+  }
   lf_hash_delete(&xid_cache, thd->xid_hash_pins,
                  element->xid.key(), element->xid.key_length());
   if (waiter)

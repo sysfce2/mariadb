@@ -28,6 +28,7 @@
 # References:
 #   MDEV-31949: slow parallel replication of user xa
 #
+--source include/have_debug.inc
 --source include/have_innodb.inc
 --source include/have_binlog_format_mixed.inc
 --source include/master-slave.inc

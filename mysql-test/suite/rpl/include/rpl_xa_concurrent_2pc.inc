@@ -402,9 +402,15 @@ if (`select count(*) != $expected_row_count from t1 where a=$new_row_idx`)
 --echo # Cleanup
 --connection master
 DROP TABLE t1;
+--source include/save_master_gtid.inc
+--let $binlog_file=query_get_value(SHOW MASTER STATUS, File, 1)
+--source include/show_binlog_events.inc
 
 --connection slave
 --source include/sync_with_master_gtid.inc
+--let $binlog_file=query_get_value(SHOW MASTER STATUS, File, 1)
+--let $fiter_cid=1
+--source include/show_binlog_events2.inc
 
 --source include/stop_slave.inc
 set @@GLOBAL.slave_parallel_threads= @save_par_thds;
