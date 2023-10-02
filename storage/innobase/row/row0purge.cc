@@ -1045,10 +1045,7 @@ row_purge_parse_undo_rec(
 	case TRX_UNDO_EMPTY:
 	case TRX_UNDO_INSERT_METADATA:
 	case TRX_UNDO_INSERT_REC:
-		/* These records do not store any transaction identifier.
-
-		FIXME: Update SYS_TABLES.ID on both DISCARD TABLESPACE
-		and IMPORT TABLESPACE to get rid of the repeated lookups! */
+		/* These records do not store any transaction identifier. */
 		node->trx_id = TRX_ID_MAX;
 		break;
 	default:
