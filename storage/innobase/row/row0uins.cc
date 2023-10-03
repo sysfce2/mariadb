@@ -389,8 +389,7 @@ static bool row_undo_ins_parse_undo_rec(undo_node_t* node, bool dict_locked)
 	byte		dummy;
 	bool		dummy_extern;
 
-	ut_ad(node->state == UNDO_INSERT_PERSISTENT
-	      || node->state == UNDO_INSERT_TEMPORARY);
+	ut_ad(node->insert);
 	ut_ad(node->trx->in_rollback);
 	ut_ad(trx_undo_roll_ptr_is_insert(node->roll_ptr));
 
@@ -398,7 +397,7 @@ static bool row_undo_ins_parse_undo_rec(undo_node_t* node, bool dict_locked)
 				    &dummy_extern, &undo_no, &table_id);
 
 	node->update = NULL;
-	if (node->state == UNDO_INSERT_PERSISTENT) {
+	if (!node->is_temp) {
 		node->table = dict_table_open_on_id(table_id, dict_locked,
 						    DICT_TABLE_OP_NORMAL);
 	} else if (!dict_locked) {
