@@ -1,0 +1,14 @@
+--source include/not_windows.inc
+--source include/have_ssl_communication.inc
+
+--disable_query_log
+--error ER_SECURE_TRANSPORT_REQUIRED
+connect without_ssl,localhost,root,,,,,TCP NOSSL;
+
+connect with_ssl,localhost,root,,,,,TCP SSL;
+--enable_query_log
+SELECT (VARIABLE_VALUE <> '') AS have_ssl FROM INFORMATION_SCHEMA.SESSION_STATUS WHERE VARIABLE_NAME='Ssl_cipher';
+disconnect with_ssl;
+
+connection default;
+
