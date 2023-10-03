@@ -81,7 +81,6 @@ that index record. */
 /** Undo node structure */
 struct undo_node_t{
 	que_common_t	common;	/*!< node type: QUE_NODE_UNDO */
-	bool		insert;	/*!< whether this is rolling back an insert */
 	bool		is_temp;/*!< whether this is a temporary table */
 	trx_t*		trx;	/*!< trx for which undo is done */
 	roll_ptr_t	roll_ptr;/*!< roll pointer to undo log record */
